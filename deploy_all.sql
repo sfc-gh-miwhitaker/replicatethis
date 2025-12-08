@@ -127,8 +127,8 @@ LANGUAGE PYTHON
 RUNTIME_VERSION = '3.10'
 PACKAGES = ('requests', 'snowflake-snowpark-python')
 HANDLER = 'run'
-EXECUTE AS OWNER
 COMMENT = 'Fetch PDF; populate pricing (Expires: 2026-01-07)'
+EXECUTE AS OWNER
 AS
 $$
 import base64
