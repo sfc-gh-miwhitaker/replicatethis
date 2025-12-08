@@ -4,11 +4,12 @@
 1. Open Snowsight ➜ Worksheets.
 2. Paste `deploy_all.sql` from repo root.
 3. Run All. The script:
-   - Enforces expiration (fails after 2026-01-07).
+   - Enforces expiration (expires 2026-01-07).
+   - Creates/uses Git integration (`SFE_GIT_API_INTEGRATION`) and Git repo stage.
    - Creates schema `SNOWFLAKE_EXAMPLE.REPLICATION_CALC`.
    - Creates warehouse `SFE_REPLICATION_CALC_WH`.
-   - Creates stage `PRICE_STAGE` and `STREAMLIT_STAGE`.
-   - Creates pricing tables/views, metadata view, Snowpark procedure, and daily refresh task.
+   - Creates stages `PRICE_STAGE` and `STREAMLIT_STAGE`.
+   - Creates pricing tables/views, Snowpark procedure, and daily refresh task.
 
 ## Upload Streamlit App
 1. In a new worksheet, upload code to the Streamlit stage:

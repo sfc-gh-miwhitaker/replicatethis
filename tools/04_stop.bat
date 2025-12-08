@@ -1,0 +1,7 @@
+@echo off
+echo === Stop Checklist (Snowsight-only) ===
+echo - Suspend task: ALTER TASK SNOWFLAKE_EXAMPLE.REPLICATION_CALC.PRICING_REFRESH_TASK SUSPEND;
+echo - Suspend warehouse: ALTER WAREHOUSE SFE_REPLICATION_CALC_WH SUSPEND;
+echo - Confirm suspended:
+echo   SHOW TASKS LIKE 'PRICING_REFRESH_TASK';
+echo   SHOW WAREHOUSES LIKE 'SFE_REPLICATION_CALC_WH';
