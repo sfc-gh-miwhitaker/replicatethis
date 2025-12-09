@@ -15,16 +15,20 @@ Network interactions for the replication/DR cost calculator using Business Criti
 graph TB
   subgraph External
     PDF[Snowflake Credit Consumption PDF<br/>HTTPS :443]
+    GitHub[GitHub Repository<br/>HTTPS :443]
   end
   subgraph "Snowflake Account"
     Snowsight[Snowsight UI<br/>HTTPS :443]
-    StreamlitApp[Streamlit App<br/>Snowflake-hosted]
-    Stage[PRICE_STAGE / STREAMLIT_STAGE]
+    GitRepo[@SNOWFLAKE_EXAMPLE.TOOLS.REPLICATE_THIS_REPO<br/>Git Repository]
+    StreamlitApp[Streamlit App<br/>Snowflake-hosted<br/>from Git]
+    Stage[PRICE_STAGE]
     Proc[Snowpark Proc<br/>REFRESH_PRICING_FROM_PDF]
     Tables[(PRICING_RAW / PRICING_CURRENT)]
     DBMeta[(DB_METADATA view)]
   end
 
+  GitHub -->|FETCH via SFE_GIT_API_INTEGRATION| GitRepo
+  GitRepo -->|loads app.py| StreamlitApp
   Snowsight -->|Launch| StreamlitApp
   StreamlitApp -->|Query| Tables
   StreamlitApp -->|Query| DBMeta
@@ -34,12 +38,33 @@ graph TB
 ```
 
 ## Component Descriptions
-- PDF: Public HTTPS endpoint for Snowflake Credit Consumption table.
-- Snowsight: Entry point for deploy and app usage.
-- Streamlit App: Runs inside Snowflake; connects to pricing tables/views.
-- PRICE_STAGE / STREAMLIT_STAGE: Internal stages for fetched assets and app code.
-- Snowpark Proc: Fetches PDF, writes PRICING_RAW/PRICING_CURRENT.
-- Tables/Views: Pricing and metadata storage powering the UI.
+
+### External Services
+- **PDF**: Public HTTPS endpoint for Snowflake Credit Consumption table
+  - URL: `snowflake.com/legal-files/CreditConsumptionTable.pdf`
+  - Fetched daily by pricing refresh procedure
+- **GitHub**: Source repository for deployment scripts and Streamlit app
+  - Repository: `github.com/sfc-gh-miwhitaker/replicatethis`
+  - Accessed via `SFE_GIT_API_INTEGRATION`
+
+### Snowflake Components
+- **Snowsight**: Entry point for deployment and app usage
+  - Deploy: Run `deploy_all.sql` in Worksheets
+  - Use: Launch Streamlit app from Streamlit section
+- **Git Repository**: Native Snowflake Git integration
+  - Path: `@SNOWFLAKE_EXAMPLE.TOOLS.REPLICATE_THIS_REPO`
+  - Provides source for Streamlit app (no manual uploads)
+- **Streamlit App**: Auto-deployed from Git repository
+  - Root location: `@...REPLICATE_THIS_REPO/branches/main/streamlit`
+  - Main file: `app.py`
+  - Runs inside Snowflake (Snowflake-hosted)
+- **PRICE_STAGE**: Internal stage for pricing data staging
+  - Used by pricing refresh procedure
+- **Snowpark Proc**: Fetches PDF, writes PRICING_RAW/PRICING_CURRENT
+  - Runs with SYSADMIN context
+  - Network access to public Snowflake PDF URL
+- **Tables/Views**: Pricing and metadata storage powering the UI
+  - PRICING_RAW, PRICING_CURRENT, DB_METADATA
 
 ## Change History
 See `.cursor/DIAGRAM_CHANGELOG.md` for vhistory.

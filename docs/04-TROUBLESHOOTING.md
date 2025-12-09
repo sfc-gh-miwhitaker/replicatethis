@@ -54,22 +54,24 @@
    -- Re-run deploy_all.sql
    ```
 
-2. **For read-only usage:**
+2. **For regular usage (any user):**
    ```sql
-   USE ROLE SFE_REPLICATION_CALC_ROLE;
-   -- This role has read access to all calculator objects
+   -- Objects are granted to PUBLIC, any role can access
+   USE ROLE PUBLIC;
+   SELECT * FROM SNOWFLAKE_EXAMPLE.REPLICATION_CALC.PRICING_CURRENT;
    ```
 
-3. **Grant ACCOUNT_USAGE access:**
+3. **Grant ACCOUNT_USAGE access (if DB_METADATA view returns empty):**
    ```sql
-   -- If DB_METADATA view returns empty:
    USE ROLE ACCOUNTADMIN;
-   GRANT IMPORTED PRIVILEGES ON DATABASE SNOWFLAKE TO ROLE SFE_REPLICATION_CALC_ROLE;
+   GRANT IMPORTED PRIVILEGES ON DATABASE SNOWFLAKE TO ROLE PUBLIC;
+   -- Or grant to your specific role:
+   GRANT IMPORTED PRIVILEGES ON DATABASE SNOWFLAKE TO ROLE <YOUR_ROLE>;
    ```
 
 4. **Check specific object grants:**
    ```sql
-   SHOW GRANTS TO ROLE SFE_REPLICATION_CALC_ROLE;
+   SHOW GRANTS TO ROLE PUBLIC;
    SHOW GRANTS ON SCHEMA SNOWFLAKE_EXAMPLE.REPLICATION_CALC;
    ```
 
@@ -102,8 +104,19 @@
 
 ### Streamlit app cannot load pricing
 - Ensure `PRICING_CURRENT` has rows; check `is_estimate` flags and `refreshed_at`.
-- Confirm stage upload completed: `LIST @SNOWFLAKE_EXAMPLE.REPLICATION_CALC.STREAMLIT_STAGE;`
-- Check Streamlit app role: Must have SELECT on all tables/views
+- Verify Streamlit app was created:
+  ```sql
+  SHOW STREAMLITS IN SCHEMA SNOWFLAKE_EXAMPLE.REPLICATION_CALC;
+  ```
+- Check app is loading from correct Git path:
+  ```sql
+  -- App should use: @SNOWFLAKE_EXAMPLE.TOOLS.REPLICATE_THIS_REPO/branches/main/streamlit
+  DESC STREAMLIT REPLICATION_CALCULATOR;
+  ```
+- Confirm PUBLIC has access:
+  ```sql
+  SHOW GRANTS ON STREAMLIT REPLICATION_CALCULATOR;
+  ```
 
 ### Database list empty
 **Symptom:** No databases appear in multiselect dropdown
@@ -125,7 +138,7 @@
 
 3. Test DB_METADATA view manually:
    ```sql
-   USE ROLE SFE_REPLICATION_CALC_ROLE;
+   -- Use any role (PUBLIC has access)
    SELECT * FROM SNOWFLAKE_EXAMPLE.REPLICATION_CALC.DB_METADATA LIMIT 5;
    ```
 

@@ -9,10 +9,16 @@
  *
  * DEPLOYMENT INSTRUCTIONS:
  * 1. Open Snowsight (https://app.snowflake.com)
- * 2. Copy this ENTIRE script
- * 3. Paste into a new SQL worksheet
- * 4. Click "Run All" (or press Cmd/Ctrl + Enter repeatedly)
- * 5. Monitor output for any errors
+ * 2. Ensure you have ACCOUNTADMIN role (required for API integration)
+ * 3. Copy this ENTIRE script
+ * 4. Paste into a new SQL worksheet
+ * 5. Click "Run All" (or press Cmd/Ctrl + Enter repeatedly)
+ * 6. Monitor output for any errors
+ *
+ * ROLE USAGE (Security Best Practice):
+ * - ACCOUNTADMIN: Creates API integration only
+ * - SYSADMIN: Creates all database objects (owns them)
+ * - PUBLIC: Granted SELECT access for demo use
  *****************************************************************************/
 
 -- Expiration Check (simple SELECT pattern)
@@ -51,7 +57,11 @@ CREATE OR REPLACE GIT REPOSITORY SNOWFLAKE_EXAMPLE.TOOLS.REPLICATE_THIS_REPO
     ORIGIN = 'https://github.com/sfc-gh-miwhitaker/replicatethis'
     COMMENT = 'Source repo for replication cost calc (Expires: 2026-01-07)';
 
-SHOW GIT BRANCHES IN SNOWFLAKE_EXAMPLE.TOOLS.REPLICATE_THIS_REPO;
+-- Fetch latest code from GitHub
+ALTER GIT REPOSITORY SNOWFLAKE_EXAMPLE.TOOLS.REPLICATE_THIS_REPO FETCH;
+
+-- Switch to SYSADMIN for all object creation (security best practice)
+USE ROLE SYSADMIN;
 
 /*****************************************************************************
  * SECTION 3: Warehouse & Schema
@@ -62,6 +72,9 @@ CREATE WAREHOUSE IF NOT EXISTS SFE_REPLICATION_CALC_WH
     AUTO_RESUME = TRUE
     INITIALLY_SUSPENDED = TRUE
     COMMENT = 'DEMO: Replication cost calculator WH (Expires: 2026-01-07)';
+
+-- Set warehouse context for all subsequent operations
+USE WAREHOUSE SFE_REPLICATION_CALC_WH;
 
 CREATE SCHEMA IF NOT EXISTS SNOWFLAKE_EXAMPLE.REPLICATION_CALC
     COMMENT = 'DEMO: Replication/DR cost calculator (Expires: 2026-01-07)';
@@ -75,8 +88,12 @@ USE WAREHOUSE SFE_REPLICATION_CALC_WH;
 CREATE OR REPLACE STAGE PRICE_STAGE
     COMMENT = 'Pricing ingest assets (Expires: 2026-01-07)';
 
-CREATE OR REPLACE STAGE STREAMLIT_STAGE
-    COMMENT = 'Streamlit app code (Expires: 2026-01-07)';
+-- Create Streamlit app directly from Git repository
+CREATE OR REPLACE STREAMLIT REPLICATION_CALCULATOR
+    ROOT_LOCATION = '@SNOWFLAKE_EXAMPLE.TOOLS.REPLICATE_THIS_REPO/branches/main/streamlit'
+    MAIN_FILE = 'app.py'
+    QUERY_WAREHOUSE = SFE_REPLICATION_CALC_WH
+    COMMENT = 'DEMO: DR/Replication Cost Calculator (Expires: 2026-01-07)';
 
 /*****************************************************************************
  * SECTION 5: Tables and Views
@@ -225,18 +242,23 @@ AS
 ALTER TASK PRICING_REFRESH_TASK RESUME;
 
 /*****************************************************************************
- * SECTION 8: Grants (minimal for demo)
+ * SECTION 8: Grants (Demo Access)
+ * Grant to PUBLIC so any role can run the demo
+ * Objects are owned by SYSADMIN (best practice)
  *****************************************************************************/
-GRANT USAGE ON WAREHOUSE SFE_REPLICATION_CALC_WH TO ROLE ACCOUNTADMIN;
-GRANT USAGE ON SCHEMA SNOWFLAKE_EXAMPLE.REPLICATION_CALC TO ROLE ACCOUNTADMIN;
-GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA SNOWFLAKE_EXAMPLE.REPLICATION_CALC
-    TO ROLE ACCOUNTADMIN;
-GRANT ALL PRIVILEGES ON ALL VIEWS IN SCHEMA SNOWFLAKE_EXAMPLE.REPLICATION_CALC
-    TO ROLE ACCOUNTADMIN;
-GRANT USAGE, OPERATE ON TASK PRICING_REFRESH_TASK TO ROLE ACCOUNTADMIN;
-GRANT USAGE ON STAGE PRICE_STAGE TO ROLE ACCOUNTADMIN;
-GRANT USAGE ON STAGE STREAMLIT_STAGE TO ROLE ACCOUNTADMIN;
-GRANT USAGE ON PROCEDURE REFRESH_PRICING_FROM_PDF() TO ROLE ACCOUNTADMIN;
+GRANT USAGE ON WAREHOUSE SFE_REPLICATION_CALC_WH TO ROLE PUBLIC;
+GRANT USAGE ON DATABASE SNOWFLAKE_EXAMPLE TO ROLE PUBLIC;
+GRANT USAGE ON SCHEMA SNOWFLAKE_EXAMPLE.REPLICATION_CALC TO ROLE PUBLIC;
+GRANT SELECT ON ALL TABLES IN SCHEMA SNOWFLAKE_EXAMPLE.REPLICATION_CALC
+    TO ROLE PUBLIC;
+GRANT SELECT ON ALL VIEWS IN SCHEMA SNOWFLAKE_EXAMPLE.REPLICATION_CALC
+    TO ROLE PUBLIC;
+GRANT USAGE ON STAGE PRICE_STAGE TO ROLE PUBLIC;
+GRANT USAGE ON PROCEDURE REFRESH_PRICING_FROM_PDF() TO ROLE PUBLIC;
+GRANT USAGE ON STREAMLIT REPLICATION_CALCULATOR TO ROLE PUBLIC;
+
+-- SYSADMIN can operate the task (no need to grant to PUBLIC for background tasks)
+GRANT OPERATE ON TASK PRICING_REFRESH_TASK TO ROLE SYSADMIN;
 
 /*****************************************************************************
  * SECTION 9: Seed and Status
@@ -244,7 +266,8 @@ GRANT USAGE ON PROCEDURE REFRESH_PRICING_FROM_PDF() TO ROLE ACCOUNTADMIN;
 CALL REFRESH_PRICING_FROM_PDF();
 
 SELECT
-    'Deployment complete' AS STATUS,
-    'Upload app.py to @STREAMLIT_STAGE and create Streamlit app' AS NEXT_STEP,
+    '✅ Deployment Complete!' AS STATUS,
+    'Open Snowsight → Streamlit → REPLICATION_CALCULATOR' AS NEXT_STEP,
+    'All objects created and ready to use' AS MESSAGE,
     'Schema: SNOWFLAKE_EXAMPLE.REPLICATION_CALC' AS SCHEMA_PATH,
     'Warehouse: SFE_REPLICATION_CALC_WH' AS WAREHOUSE_NAME;

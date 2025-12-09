@@ -1,16 +1,40 @@
 # Setup - Streamlit DR Replication Cost Calculator (Business Critical)
 
 ## Prerequisites
-- Snowflake Business Critical edition (required for replication/failover features).
-- Roles: `ACCOUNTADMIN` (for setup) and a working warehouse quota.
-- Network access to fetch `https://www.snowflake.com/legal-files/CreditConsumptionTable.pdf` from inside Snowflake.
 
-## Steps (Snowsight-only)
-1. Sign in to Snowsight with `ACCOUNTADMIN`.
-2. Set a worksheet context to your target account.
-3. Continue to `docs/02-DEPLOYMENT.md` to run `deploy_all.sql`.
+**This is a 100% Snowflake-native demo. No local setup required!**
+
+- **Snowflake Edition**: Business Critical (required for replication/failover features)
+- **Required Role**: `ACCOUNTADMIN` (for initial deployment only)
+  - Creates Git API integration (requires ACCOUNTADMIN)
+  - Script automatically switches to SYSADMIN for object creation
+- **Network Access**: Snowflake must be able to fetch:
+  - GitHub repository (via Git integration)
+  - `https://www.snowflake.com/legal-files/CreditConsumptionTable.pdf` (pricing data)
+
+## Quick Start
+
+1. Sign in to Snowsight
+2. Ensure you have ACCOUNTADMIN role
+3. Continue to `docs/02-DEPLOYMENT.md` to run `deploy_all.sql`
+
+**That's it!** Everything deploys automatically.
 
 ## Security & Naming
-- All objects live in `SNOWFLAKE_EXAMPLE.REPLICATION_CALC`.
-- Warehouse uses `SFE_REPLICATION_CALC_WH` (SFE_ prefix for account-level objects).
-- No credentials are stored; all external access is to the public PDF URL.
+
+### Role-Based Security (Best Practice)
+- **ACCOUNTADMIN**: Creates Git API integration only
+- **SYSADMIN**: Owns all database objects (warehouse, schema, tables, Streamlit app)
+- **PUBLIC**: Granted read-only access (any user can run the demo)
+
+### Object Naming
+- **Schema**: `SNOWFLAKE_EXAMPLE.REPLICATION_CALC`
+- **Warehouse**: `SFE_REPLICATION_CALC_WH` (XSmall, auto-suspend)
+- **Streamlit App**: `REPLICATION_CALCULATOR`
+- **Git Repository**: `SNOWFLAKE_EXAMPLE.TOOLS.REPLICATE_THIS_REPO`
+
+### Security Notes
+- No credentials stored
+- All external access to public URLs (GitHub, Snowflake PDF)
+- Minimal privilege grants (PUBLIC has SELECT/USAGE only)
+- Streamlit app deploys directly from Git (no manual file uploads)

@@ -13,18 +13,24 @@
 **Created:** 2025-12-08 | **Expires:** 2026-01-07 (30 days) | **Status:** ACTIVE
 
 ## 👋 First Time Here?
+
+**This is a 100% Snowflake-native demo. No local setup required!**
+
 Follow these in order:
-1. `docs/01-SETUP.md` — Environment & role checks (5 min)
-2. `tools/00_master.sh` or `.bat` — Orchestrator (1 min)
-3. `docs/02-DEPLOYMENT.md` — Run `deploy_all.sql` in Snowsight (10 min)
-4. `docs/03-USAGE.md` — Launch the Streamlit app and refresh pricing (10 min)
-5. `docs/04-TROUBLESHOOTING.md` — Common fixes (3 min)
-Total setup time: ~29 minutes
+1. `docs/01-SETUP.md` — Prerequisites & role checks (2 min)
+2. `docs/02-DEPLOYMENT.md` — Run `deploy_all.sql` in Snowsight (5 min)
+3. `docs/03-USAGE.md` — Use the Streamlit app (5 min)
+4. `docs/04-TROUBLESHOOTING.md` — Common fixes (reference as needed)
+
+**Total setup time: ~10 minutes**
 
 ## Quick Start
-- Open Snowsight ➜ Worksheets ➜ paste `deploy_all.sql` ➜ Run All (template-aligned).
-- Upload `streamlit/app.py` to `@SNOWFLAKE_EXAMPLE.REPLICATION_CALC.STREAMLIT_STAGE` and create the Streamlit app.
-- Open the app, trigger a pricing refresh from Snowflake’s Credit Consumption PDF, pick source/destination regions, and review the itemized replication/DR costs.
+
+1. **Deploy**: Open Snowsight → Worksheets → Paste `deploy_all.sql` → Run All
+2. **Use**: Open Snowsight → Streamlit → `REPLICATION_CALCULATOR`
+3. **Done**: Pick source/destination regions and review replication/DR costs
+
+**That's it!** Everything runs inside Snowflake. No files to upload, no local tools needed.
 
 ## What This Delivers
 - Snowflake-only Streamlit app for replication/DR cost estimation using Business Critical pricing.
@@ -58,7 +64,10 @@ Hooks include:
 - YAML validation
 
 ### Technical Details
-- All Snowflake objects live under `SNOWFLAKE_EXAMPLE.REPLICATION_CALC`; warehouse uses `SFE_REPLICATION_CALC_WH` (expires 2026-01-07 in comments).
-- Demo uses Business Critical features/pricing. Refresh pricing regularly to stay current.
-- Expiration guard enforced in `deploy_all.sql` (expires 2026-01-07) and auto-archive workflow in `.github/workflows/expire-demo.yml`.
-- Custom role `SFE_REPLICATION_CALC_ROLE` available for read-only access (use instead of ACCOUNTADMIN in production).
+- **Objects**: All under `SNOWFLAKE_EXAMPLE.REPLICATION_CALC` schema
+- **Warehouse**: `SFE_REPLICATION_CALC_WH` (XSmall, auto-suspend)
+- **Streamlit App**: Auto-deployed from Git repository (no manual uploads)
+- **Security**: SYSADMIN owns objects, PUBLIC granted read access
+- **Features**: Business Critical edition features/pricing
+- **Expiration**: Enforced in `deploy_all.sql` and auto-archive workflow (`.github/workflows/expire-demo.yml`)
+- **Pricing**: Automatically refreshed daily from Snowflake's public PDF

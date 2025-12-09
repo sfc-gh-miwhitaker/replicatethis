@@ -31,7 +31,11 @@ graph TB
   subgraph "SNOWFLAKE.ACCOUNT_USAGE"
     DBUsage[(DATABASE_STORAGE_USAGE_HISTORY)]
   end
+  subgraph "GitHub Repository"
+    GitRepo[Git Repo<br/>sfc-gh-miwhitaker/replicatethis]
+  end
 
+  GitRepo -->|deployed from| Streamlit
   PDF -->|GET with retry| Proc
   Proc -->|stores base64| Raw
   Proc -->|archives old| History
@@ -44,7 +48,7 @@ graph TB
   Streamlit -->|daily + monthly costs| User[End User]
   Streamlit -->|CSV export| User
   Task1 -->|triggers| Proc
-  Task2 -->|on expiration| Cleanup[Drop Schema/WH/Role]
+  Task2 -->|on expiration| Cleanup[Drop Schema/WH]
 ```
 
 ## Component Descriptions
@@ -67,13 +71,16 @@ graph TB
 - **EXPIRATION_CLEANUP_TASK**: Automated cleanup task (drops schema/warehouse/role on 2026-01-08)
 
 ### User Interface
-- **Streamlit App**: Interactive cost calculator with:
-  - Error handling for all database calls
-  - Cloud/region detection via SYSTEM$ functions
-  - Monthly and annual cost projections
-  - Lowest-cost region recommendations
-  - Enhanced CSV export with full assumptions
-  - Input validation and helpful error messages
+- **Streamlit App**: Auto-deployed from Git repository (lines 91-96 in deploy_all.sql)
+  - Loads directly from `@SNOWFLAKE_EXAMPLE.TOOLS.REPLICATE_THIS_REPO/branches/main/streamlit`
+  - No manual file uploads required
+  - Interactive cost calculator with:
+    - Error handling for all database calls
+    - Cloud/region detection via SYSTEM$ functions
+    - Monthly and annual cost projections
+    - Lowest-cost region recommendations
+    - Enhanced CSV export with full assumptions
+    - Input validation and helpful error messages
 
 ## Key Features
 
@@ -91,10 +98,12 @@ graph TB
 - Region cost comparison feature
 
 ### Security & Governance
-- Custom role (SFE_REPLICATION_CALC_ROLE) for read-only access
+- Role-based security: ACCOUNTADMIN → SYSADMIN (owns objects) → PUBLIC (grants)
+- Objects owned by SYSADMIN (best practice)
+- PUBLIC granted read-only access (SELECT, USAGE)
 - Automated cleanup on expiration
 - Audit trail in PRICING_RAW table
-- Minimal privilege grants
+- Minimal privilege grants (no ACCOUNTADMIN dependencies for users)
 
 ### Maintainability
 - Fallback rates in table (not hardcoded)

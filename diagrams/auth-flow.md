@@ -13,27 +13,63 @@ Authentication and authorization for deployment and use of the replication/DR co
 
 ```mermaid
 sequenceDiagram
-  actor Admin as ACCOUNTADMIN
-  actor User as Cost Analyst
+  actor Admin as Deploying Admin
+  actor User as Any Snowflake User
   participant Snowsight
   participant Streamlit as Streamlit App
   participant SF as Snowflake
 
-  Admin->>Snowsight: Login with SSO/Keypair
-  Admin->>SF: Run deploy_all.sql (create schema, stage, tables, proc, task, app)
-  User->>Snowsight: Login (SSO/Keypair)
+  Note over Admin,SF: Deployment Phase
+  Admin->>Snowsight: Login (needs ACCOUNTADMIN)
+  Admin->>SF: USE ROLE ACCOUNTADMIN
+  SF->>SF: Create Git API Integration
+  Admin->>SF: USE ROLE SYSADMIN
+  SF->>SF: Create warehouse, schema, tables, views, proc, task, Streamlit app
+  SF->>SF: GRANT SELECT/USAGE to PUBLIC
+
+  Note over User,SF: Usage Phase
+  User->>Snowsight: Login (any auth method)
   User->>Streamlit: Open REPLICATION_CALCULATOR
-  Streamlit->>SF: Query PRICING_CURRENT, DB_METADATA (role-based access)
+  Note over Streamlit: User has PUBLIC grants
+  Streamlit->>SF: Query PRICING_CURRENT, DB_METADATA
+  SF-->>Streamlit: Return data
   User->>Streamlit: Click "Refresh pricing now"
-  Streamlit->>SF: CALL REFRESH_PRICING_FROM_PDF (uses bound role/warehouse)
+  Streamlit->>SF: CALL REFRESH_PRICING_FROM_PDF()
+  SF-->>Streamlit: Pricing refreshed
 ```
 
 ## Component Descriptions
-- Identity: SSO/Keypair via Snowsight; roles managed in Snowflake.
-- Roles: `ACCOUNTADMIN` for deploy; app runs with assigned app role to read pricing/metadata and call proc.
-- Session: Snowsight-provided session passed to Streamlit app.
-- Authorization: SQL grants to schema/tables/procedure; task runs with owner’s rights.
-- Warehouse: `SFE_REPLICATION_CALC_WH` for pricing refresh/task and metadata queries.
+
+### Authentication
+- **Identity**: SSO, Key Pair, or username/password via Snowsight
+- **Session**: Snowsight-provided session passed to Streamlit app
+- **No custom authentication**: Uses standard Snowflake auth mechanisms
+
+### Authorization (Role-Based Security)
+
+#### Deployment Roles
+- **ACCOUNTADMIN**: Creates Git API integration only (line 30-43 in deploy_all.sql)
+- **SYSADMIN**: Creates all database objects - owns them (line 58+ in deploy_all.sql)
+  - Warehouse, schema, tables, views, stages, procedures, tasks, Streamlit app
+
+#### Usage Roles
+- **PUBLIC**: Granted SELECT and USAGE permissions (lines 246-258 in deploy_all.sql)
+  - Any Snowflake user can run the demo
+  - Read-only access to pricing tables/views
+  - USAGE on warehouse for queries
+  - USAGE on Streamlit app
+  - Can execute the pricing refresh procedure
+
+#### Task Execution
+- **SYSADMIN**: Granted OPERATE on PRICING_REFRESH_TASK (line 261)
+  - Task runs with owner's rights (SYSADMIN context)
+  - Background process, not user-facing
+
+### Warehouse
+- **SFE_REPLICATION_CALC_WH**: Used by Streamlit app queries and pricing refresh
+  - Auto-suspend after 5 minutes
+  - Auto-resume on query
+  - XSmall size for demo workloads
 
 ## Change History
 See `.cursor/DIAGRAM_CHANGELOG.md` for vhistory.
