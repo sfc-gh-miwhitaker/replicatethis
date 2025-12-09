@@ -48,7 +48,7 @@ def run_pricing_refresh():
 
 def get_cloud_and_region():
     try:
-        cloud_result = session.sql("SELECT SYSTEM$GET_CLOUD()").collect()
+        cloud_result = session.sql("SELECT CURRENT_CLOUD()").collect()
         region_result = session.sql("SELECT CURRENT_REGION()").collect()
 
         cloud = cloud_result[0][0] if cloud_result else "AWS"
