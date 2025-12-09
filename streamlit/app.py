@@ -186,19 +186,28 @@ def main():
 
     source_cloud, source_region = get_cloud_and_region()
 
-    dest_regions = sorted({r.REGION for r in pricing_rows})
-    dest_region = st.selectbox("Destination region", dest_regions, index=0 if dest_regions else None) if dest_regions else None
+    # Destination selection: Cloud first, then region
+    st.subheader("Destination Selection")
 
-    if dest_region:
-        for r in pricing_rows:
-            if r.REGION == dest_region:
-                dest_cloud = r.CLOUD
-                break
-        else:
-            dest_cloud = dest_region.split('-')[0]
-    else:
-        dest_cloud = source_cloud
+    available_clouds = sorted({r.CLOUD for r in pricing_rows})
+    dest_cloud = st.selectbox(
+        "Destination cloud provider",
+        available_clouds,
+        index=available_clouds.index(source_cloud) if source_cloud in available_clouds else 0,
+        help="Select the destination cloud provider for replication"
+    )
 
+    # Filter regions by selected cloud
+    cloud_regions = sorted({r.REGION for r in pricing_rows if r.CLOUD == dest_cloud})
+    dest_region = st.selectbox(
+        "Destination region",
+        cloud_regions,
+        index=0 if cloud_regions else None,
+        help=f"Select the destination region in {dest_cloud}"
+    ) if cloud_regions else None
+
+    # Replication parameters
+    st.subheader("Replication Parameters")
     daily_change_pct = st.slider("Daily change rate (%)", 0.0, 20.0, 5.0, 0.5,
                                    help="Percentage of total data that changes each day")
     refresh_per_day = st.slider("Refreshes per day", 0.0, 24.0, 1.0, 0.5,
@@ -221,10 +230,17 @@ def main():
 
     projections = calculate_monthly_projection(transfer_cost, compute_cost, storage_cost, serverless_cost)
 
-    st.subheader("Assumptions")
-    st.write(
-        f"Source cloud/region: {source_cloud} / {source_region} | Destination: {dest_cloud or '-'} / {dest_region or '-'}"
-    )
+    st.subheader("Cost Summary")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.write("**Source:**")
+        st.write(f"Cloud: {source_cloud}")
+        st.write(f"Region: {source_region}")
+    with col2:
+        st.write("**Destination:**")
+        st.write(f"Cloud: {dest_cloud or '-'}")
+        st.write(f"Region: {dest_region or '-'}")
     st.write(
         f"Daily change: {daily_change_pct}% | Refreshes/day: {refresh_per_day} | Selected DB size: {total_size_tb:.3f} TB"
     )
