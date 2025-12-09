@@ -49,6 +49,8 @@ After "Run All" completes, you should see:
 Open Snowsight → Streamlit → REPLICATION_CALCULATOR
 ```
 
+**Note:** The script grants ACCOUNT_USAGE access to SYSADMIN (already has it by default). Database sizes will populate from `SNOWFLAKE.ACCOUNT_USAGE.DATABASE_STORAGE_USAGE_HISTORY` (1-2 day latency for new databases).
+
 ### Next Steps
 
 1. Navigate to Snowsight → Streamlit → `REPLICATION_CALCULATOR`

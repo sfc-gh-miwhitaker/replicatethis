@@ -116,37 +116,23 @@ CREATE OR REPLACE TABLE PRICING_CURRENT (
 ) COMMENT = 'Normalized pricing rows (BC) (Expires: 2026-01-07)';
 
 CREATE OR REPLACE VIEW DB_METADATA AS
-WITH ACTIVE_DBS AS (
-    SELECT DATABASE_NAME
-    FROM SNOWFLAKE.INFORMATION_SCHEMA.DATABASES
-    WHERE DELETED IS NULL
-),
-LATEST_USAGE AS (
+WITH DB_SIZES AS (
     SELECT
-        DATABASE_NAME,
-        AVERAGE_DATABASE_BYTES,
-        USAGE_DATE,
-        ROW_NUMBER() OVER (
-            PARTITION BY DATABASE_NAME
-            ORDER BY USAGE_DATE DESC
-        ) AS RN
-    FROM SNOWFLAKE.ACCOUNT_USAGE.DATABASE_STORAGE_USAGE_HISTORY
-    WHERE AVERAGE_DATABASE_BYTES > 0
+        t.TABLE_CATALOG AS DATABASE_NAME,
+        SUM(t.BYTES) AS TOTAL_BYTES
+    FROM SNOWFLAKE.INFORMATION_SCHEMA.TABLES t
+    WHERE t.TABLE_CATALOG NOT IN ('SNOWFLAKE', 'SNOWFLAKE_SAMPLE_DATA', 'UTIL_DB')
+    AND t.TABLE_TYPE = 'BASE TABLE'
+    GROUP BY t.TABLE_CATALOG
 )
 SELECT
-    u.DATABASE_NAME,
-    (u.AVERAGE_DATABASE_BYTES / POWER(1024, 4))::NUMBER(18,6) AS SIZE_TB,
-    u.USAGE_DATE AS AS_OF,
-    DATEDIFF('day', u.USAGE_DATE, CURRENT_DATE()) AS DATA_AGE_DAYS
-FROM LATEST_USAGE u
-INNER JOIN ACTIVE_DBS a ON u.DATABASE_NAME = a.DATABASE_NAME
-WHERE u.RN = 1
-AND u.DATABASE_NAME NOT IN (
-    'SNOWFLAKE',
-    'SNOWFLAKE_SAMPLE_DATA',
-    'UTIL_DB'
-)
-ORDER BY u.DATABASE_NAME;
+    DATABASE_NAME,
+    (TOTAL_BYTES / POWER(1024, 4))::NUMBER(18,6) AS SIZE_TB,
+    CURRENT_TIMESTAMP() AS AS_OF,
+    0 AS DATA_AGE_DAYS
+FROM DB_SIZES
+WHERE TOTAL_BYTES > 0
+ORDER BY DATABASE_NAME;
 
 /*****************************************************************************
  * SECTION 6: Pricing Refresh Procedure (Snowpark)
@@ -169,6 +155,7 @@ from snowflake.snowpark import Session
 PDF_URL = "https://www.snowflake.com/legal-files/CreditConsumptionTable.pdf"
 
 FALLBACK_RATES = [
+    # AWS Regions
     {"service_type": "DATA_TRANSFER", "cloud": "AWS", "region": "us-east-1",
      "unit": "TB", "rate": 2.50, "currency": "CREDITS"},
     {"service_type": "REPLICATION_COMPUTE", "cloud": "AWS", "region": "us-east-1",
@@ -177,6 +164,31 @@ FALLBACK_RATES = [
      "unit": "TB_MONTH", "rate": 0.25, "currency": "CREDITS"},
     {"service_type": "SERVERLESS_MAINT", "cloud": "AWS", "region": "us-east-1",
      "unit": "TB_MONTH", "rate": 0.10, "currency": "CREDITS"},
+    {"service_type": "DATA_TRANSFER", "cloud": "AWS", "region": "us-west-2",
+     "unit": "TB", "rate": 2.50, "currency": "CREDITS"},
+    {"service_type": "REPLICATION_COMPUTE", "cloud": "AWS", "region": "us-west-2",
+     "unit": "TB", "rate": 1.00, "currency": "CREDITS"},
+    {"service_type": "STORAGE_TB_MONTH", "cloud": "AWS", "region": "us-west-2",
+     "unit": "TB_MONTH", "rate": 0.25, "currency": "CREDITS"},
+    {"service_type": "SERVERLESS_MAINT", "cloud": "AWS", "region": "us-west-2",
+     "unit": "TB_MONTH", "rate": 0.10, "currency": "CREDITS"},
+    {"service_type": "DATA_TRANSFER", "cloud": "AWS", "region": "eu-west-1",
+     "unit": "TB", "rate": 2.50, "currency": "CREDITS"},
+    {"service_type": "REPLICATION_COMPUTE", "cloud": "AWS", "region": "eu-west-1",
+     "unit": "TB", "rate": 1.00, "currency": "CREDITS"},
+    {"service_type": "STORAGE_TB_MONTH", "cloud": "AWS", "region": "eu-west-1",
+     "unit": "TB_MONTH", "rate": 0.25, "currency": "CREDITS"},
+    {"service_type": "SERVERLESS_MAINT", "cloud": "AWS", "region": "eu-west-1",
+     "unit": "TB_MONTH", "rate": 0.10, "currency": "CREDITS"},
+    {"service_type": "DATA_TRANSFER", "cloud": "AWS", "region": "ap-southeast-1",
+     "unit": "TB", "rate": 2.50, "currency": "CREDITS"},
+    {"service_type": "REPLICATION_COMPUTE", "cloud": "AWS", "region":
+        "ap-southeast-1", "unit": "TB", "rate": 1.00, "currency": "CREDITS"},
+    {"service_type": "STORAGE_TB_MONTH", "cloud": "AWS", "region":
+        "ap-southeast-1", "unit": "TB_MONTH", "rate": 0.25, "currency": "CREDITS"},
+    {"service_type": "SERVERLESS_MAINT", "cloud": "AWS", "region": "ap-southeast-1",
+     "unit": "TB_MONTH", "rate": 0.10, "currency": "CREDITS"},
+    # Azure Regions
     {"service_type": "DATA_TRANSFER", "cloud": "AZURE", "region": "eastus2",
      "unit": "TB", "rate": 2.70, "currency": "CREDITS"},
     {"service_type": "REPLICATION_COMPUTE", "cloud": "AZURE", "region": "eastus2",
@@ -185,6 +197,31 @@ FALLBACK_RATES = [
      "unit": "TB_MONTH", "rate": 0.27, "currency": "CREDITS"},
     {"service_type": "SERVERLESS_MAINT", "cloud": "AZURE", "region": "eastus2",
      "unit": "TB_MONTH", "rate": 0.12, "currency": "CREDITS"},
+    {"service_type": "DATA_TRANSFER", "cloud": "AZURE", "region": "westus2",
+     "unit": "TB", "rate": 2.70, "currency": "CREDITS"},
+    {"service_type": "REPLICATION_COMPUTE", "cloud": "AZURE", "region": "westus2",
+     "unit": "TB", "rate": 1.10, "currency": "CREDITS"},
+    {"service_type": "STORAGE_TB_MONTH", "cloud": "AZURE", "region": "westus2",
+     "unit": "TB_MONTH", "rate": 0.27, "currency": "CREDITS"},
+    {"service_type": "SERVERLESS_MAINT", "cloud": "AZURE", "region": "westus2",
+     "unit": "TB_MONTH", "rate": 0.12, "currency": "CREDITS"},
+    {"service_type": "DATA_TRANSFER", "cloud": "AZURE", "region": "westeurope",
+     "unit": "TB", "rate": 2.70, "currency": "CREDITS"},
+    {"service_type": "REPLICATION_COMPUTE", "cloud": "AZURE", "region": "westeurope",
+     "unit": "TB", "rate": 1.10, "currency": "CREDITS"},
+    {"service_type": "STORAGE_TB_MONTH", "cloud": "AZURE", "region": "westeurope",
+     "unit": "TB_MONTH", "rate": 0.27, "currency": "CREDITS"},
+    {"service_type": "SERVERLESS_MAINT", "cloud": "AZURE", "region": "westeurope",
+     "unit": "TB_MONTH", "rate": 0.12, "currency": "CREDITS"},
+    {"service_type": "DATA_TRANSFER", "cloud": "AZURE", "region": "southeastasia",
+     "unit": "TB", "rate": 2.70, "currency": "CREDITS"},
+    {"service_type": "REPLICATION_COMPUTE", "cloud": "AZURE", "region":
+        "southeastasia", "unit": "TB", "rate": 1.10, "currency": "CREDITS"},
+    {"service_type": "STORAGE_TB_MONTH", "cloud": "AZURE", "region": "southeastasia",
+     "unit": "TB_MONTH", "rate": 0.27, "currency": "CREDITS"},
+    {"service_type": "SERVERLESS_MAINT", "cloud": "AZURE", "region":
+        "southeastasia", "unit": "TB_MONTH", "rate": 0.12, "currency": "CREDITS"},
+    # GCP Regions
     {"service_type": "DATA_TRANSFER", "cloud": "GCP", "region": "us-central1",
      "unit": "TB", "rate": 2.60, "currency": "CREDITS"},
     {"service_type": "REPLICATION_COMPUTE", "cloud": "GCP", "region": "us-central1",
@@ -192,6 +229,30 @@ FALLBACK_RATES = [
     {"service_type": "STORAGE_TB_MONTH", "cloud": "GCP", "region": "us-central1",
      "unit": "TB_MONTH", "rate": 0.26, "currency": "CREDITS"},
     {"service_type": "SERVERLESS_MAINT", "cloud": "GCP", "region": "us-central1",
+     "unit": "TB_MONTH", "rate": 0.11, "currency": "CREDITS"},
+    {"service_type": "DATA_TRANSFER", "cloud": "GCP", "region": "us-west1",
+     "unit": "TB", "rate": 2.60, "currency": "CREDITS"},
+    {"service_type": "REPLICATION_COMPUTE", "cloud": "GCP", "region": "us-west1",
+     "unit": "TB", "rate": 1.05, "currency": "CREDITS"},
+    {"service_type": "STORAGE_TB_MONTH", "cloud": "GCP", "region": "us-west1",
+     "unit": "TB_MONTH", "rate": 0.26, "currency": "CREDITS"},
+    {"service_type": "SERVERLESS_MAINT", "cloud": "GCP", "region": "us-west1",
+     "unit": "TB_MONTH", "rate": 0.11, "currency": "CREDITS"},
+    {"service_type": "DATA_TRANSFER", "cloud": "GCP", "region": "europe-west1",
+     "unit": "TB", "rate": 2.60, "currency": "CREDITS"},
+    {"service_type": "REPLICATION_COMPUTE", "cloud": "GCP", "region": "europe-west1",
+     "unit": "TB", "rate": 1.05, "currency": "CREDITS"},
+    {"service_type": "STORAGE_TB_MONTH", "cloud": "GCP", "region": "europe-west1",
+     "unit": "TB_MONTH", "rate": 0.26, "currency": "CREDITS"},
+    {"service_type": "SERVERLESS_MAINT", "cloud": "GCP", "region": "europe-west1",
+     "unit": "TB_MONTH", "rate": 0.11, "currency": "CREDITS"},
+    {"service_type": "DATA_TRANSFER", "cloud": "GCP", "region": "asia-southeast1",
+     "unit": "TB", "rate": 2.60, "currency": "CREDITS"},
+    {"service_type": "REPLICATION_COMPUTE", "cloud": "GCP", "region":
+        "asia-southeast1", "unit": "TB", "rate": 1.05, "currency": "CREDITS"},
+    {"service_type": "STORAGE_TB_MONTH", "cloud": "GCP", "region": "asia-southeast1",
+     "unit": "TB_MONTH", "rate": 0.26, "currency": "CREDITS"},
+    {"service_type": "SERVERLESS_MAINT", "cloud": "GCP", "region": "asia-southeast1",
      "unit": "TB_MONTH", "rate": 0.11, "currency": "CREDITS"},
 ]
 
@@ -259,9 +320,14 @@ ALTER TASK PRICING_REFRESH_TASK RESUME;
 
 /*****************************************************************************
  * SECTION 8: Grants (Demo Access)
- * Grant to PUBLIC so any role can run the demo
- * Objects are owned by SYSADMIN (best practice)
  *****************************************************************************/
+
+-- Grant ACCOUNT_USAGE access to SYSADMIN (required for DB_METADATA view)
+USE ROLE ACCOUNTADMIN;
+GRANT IMPORTED PRIVILEGES ON DATABASE SNOWFLAKE TO ROLE SYSADMIN;
+
+-- Grant demo object access to PUBLIC (as SYSADMIN, the owner)
+USE ROLE SYSADMIN;
 GRANT USAGE ON WAREHOUSE SFE_REPLICATION_CALC_WH TO ROLE PUBLIC;
 GRANT USAGE ON DATABASE SNOWFLAKE_EXAMPLE TO ROLE PUBLIC;
 GRANT USAGE ON SCHEMA SNOWFLAKE_EXAMPLE.REPLICATION_CALC TO ROLE PUBLIC;
@@ -273,7 +339,7 @@ GRANT READ ON STAGE PRICE_STAGE TO ROLE PUBLIC;
 GRANT USAGE ON PROCEDURE REFRESH_PRICING_FROM_PDF() TO ROLE PUBLIC;
 GRANT USAGE ON STREAMLIT REPLICATION_CALCULATOR TO ROLE PUBLIC;
 
--- SYSADMIN can operate the task (no need to grant to PUBLIC for background tasks)
+-- SYSADMIN can operate the task
 GRANT OPERATE ON TASK PRICING_REFRESH_TASK TO ROLE SYSADMIN;
 
 /*****************************************************************************
