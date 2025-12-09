@@ -197,14 +197,15 @@ def run(session: Session) -> str:
     now = datetime.datetime.utcnow()
 
     session.sql("TRUNCATE TABLE PRICING_RAW").collect()
-    session.table("PRICING_RAW").insert(
-        [
-            {
-                "SOURCE_URL": PDF_URL,
-                "CONTENT_BASE64": pdf_b64 if pdf_b64 else "UNAVAILABLE",
-                "INGESTED_AT": now,
-            }
-        ]
+    raw_data = [
+        {
+            "SOURCE_URL": PDF_URL,
+            "CONTENT_BASE64": pdf_b64 if pdf_b64 else "UNAVAILABLE",
+            "INGESTED_AT": now,
+        }
+    ]
+    session.create_dataframe(raw_data).write.mode("append").save_as_table(
+        "PRICING_RAW"
     )
 
     session.sql("TRUNCATE TABLE PRICING_CURRENT").collect()
@@ -222,7 +223,9 @@ def run(session: Session) -> str:
                 "REFRESHED_AT": now,
             }
         )
-    session.table("PRICING_CURRENT").insert(rows)
+    session.create_dataframe(rows).write.mode("append").save_as_table(
+        "PRICING_CURRENT"
+    )
     return (
         f"Pricing refreshed at {now.isoformat()}Z; PDF fetched="
         f"{pdf_b64 is not None}"
@@ -253,7 +256,7 @@ GRANT SELECT ON ALL TABLES IN SCHEMA SNOWFLAKE_EXAMPLE.REPLICATION_CALC
     TO ROLE PUBLIC;
 GRANT SELECT ON ALL VIEWS IN SCHEMA SNOWFLAKE_EXAMPLE.REPLICATION_CALC
     TO ROLE PUBLIC;
-GRANT USAGE ON STAGE PRICE_STAGE TO ROLE PUBLIC;
+GRANT READ ON STAGE PRICE_STAGE TO ROLE PUBLIC;
 GRANT USAGE ON PROCEDURE REFRESH_PRICING_FROM_PDF() TO ROLE PUBLIC;
 GRANT USAGE ON STREAMLIT REPLICATION_CALCULATOR TO ROLE PUBLIC;
 
