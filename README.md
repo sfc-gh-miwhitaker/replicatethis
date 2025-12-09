@@ -32,7 +32,33 @@ Total setup time: ~29 minutes
 - Database metadata view for selecting databases and sizing transfer.
 - Architecture diagrams in `diagrams/` (Mermaid source of truth).
 
-## Notes
+## Important Notes
+
+### Cost Disclaimer
+**This calculator provides estimates for budgeting purposes only.** Actual costs may vary based on:
+- Data compression ratios
+- Network conditions and transfer speeds
+- Actual change patterns vs. estimated rates
+- Regional pricing variations
+- Snowflake contract terms and discounts
+
+Always monitor actual consumption using Snowflake's `ACCOUNT_USAGE` views and consult with your account team for production planning.
+
+### Pre-Commit Hooks Setup
+This project uses pre-commit hooks for code quality. To enable:
+```bash
+pip install pre-commit
+pre-commit install
+```
+
+Hooks include:
+- Secret detection (detect-secrets, gitleaks)
+- SQL linting (sqlfluff)
+- Trailing whitespace removal
+- YAML validation
+
+### Technical Details
 - All Snowflake objects live under `SNOWFLAKE_EXAMPLE.REPLICATION_CALC`; warehouse uses `SFE_REPLICATION_CALC_WH` (expires 2026-01-07 in comments).
 - Demo uses Business Critical features/pricing. Refresh pricing regularly to stay current.
 - Expiration guard enforced in `deploy_all.sql` (expires 2026-01-07) and auto-archive workflow in `.github/workflows/expire-demo.yml`.
+- Custom role `SFE_REPLICATION_CALC_ROLE` available for read-only access (use instead of ACCOUNTADMIN in production).

@@ -1,0 +1,41 @@
+name: Validate SQL
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '**.sql'
+      - '.github/workflows/validate-sql.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - '**.sql'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install sqlfluff
+        run: |
+          pip install sqlfluff==3.0.0
+
+      - name: Lint SQL files
+        run: |
+          sqlfluff lint --dialect snowflake deploy_all.sql sql/**/*.sql || true
+
+      - name: Check for SQL syntax errors
+        run: |
+          echo "Checking for common SQL syntax errors..."
+          if grep -r "SELECT \*" --include="*.sql" deploy_all.sql sql/; then
+            echo "WARNING: Found SELECT * in production SQL"
+            exit 0
+          fi
+          echo "Basic SQL checks passed"

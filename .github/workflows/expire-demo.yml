@@ -19,9 +19,10 @@ jobs:
             echo "Repository still active (expires $EXPIRATION_DATE)"
           fi
       - name: Archive and make private if expired
-        if: ${{ github.event_name == 'schedule' && (steps.expire.outputs || true) }}
+        if: ${{ github.event_name == 'schedule' }}
         uses: actions/github-script@v7
         with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const expiration = new Date('2026-01-07T00:00:00Z');
             const now = new Date();

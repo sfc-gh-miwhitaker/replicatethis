@@ -1,4 +1,4 @@
-/*******************************************************************************
+/*****************************************************************************
  * DEMO METADATA (Machine-readable - Do not modify format)
  * PROJECT_NAME: Streamlit DR Replication Cost Calculator
  * AUTHOR: SE Community
@@ -13,7 +13,7 @@
  * 3. Paste into a new SQL worksheet
  * 4. Click "Run All" (or press Cmd/Ctrl + Enter repeatedly)
  * 5. Monitor output for any errors
- ******************************************************************************/
+ *****************************************************************************/
 
 -- Expiration Check (simple SELECT pattern)
 SET EXPIRATION_DATE = '2026-01-07'::DATE;
@@ -24,14 +24,14 @@ SELECT
         ELSE 'ACTIVE: Expires ' || TO_VARCHAR($EXPIRATION_DATE)
     END AS EXPIRATION_STATUS;
 
-/*******************************************************************************
+/*****************************************************************************
  * SECTION 1: Context
- ******************************************************************************/
+ *****************************************************************************/
 USE ROLE ACCOUNTADMIN;
 
-/*******************************************************************************
+/*****************************************************************************
  * SECTION 2: Git Integration (optional if repo already staged)
- ******************************************************************************/
+ *****************************************************************************/
 -- If SFE_GIT_API_INTEGRATION already exists, this is idempotent.
 CREATE OR REPLACE API INTEGRATION SFE_GIT_API_INTEGRATION
     API_PROVIDER = git_https_api
@@ -53,9 +53,9 @@ CREATE OR REPLACE GIT REPOSITORY SNOWFLAKE_EXAMPLE.TOOLS.REPLICATE_THIS_REPO
 
 SHOW GIT BRANCHES IN SNOWFLAKE_EXAMPLE.TOOLS.REPLICATE_THIS_REPO;
 
-/*******************************************************************************
+/*****************************************************************************
  * SECTION 3: Warehouse & Schema
- ******************************************************************************/
+ *****************************************************************************/
 CREATE WAREHOUSE IF NOT EXISTS SFE_REPLICATION_CALC_WH
     WAREHOUSE_SIZE = XSMALL
     AUTO_SUSPEND = 300
@@ -69,18 +69,18 @@ CREATE SCHEMA IF NOT EXISTS SNOWFLAKE_EXAMPLE.REPLICATION_CALC
 USE SCHEMA SNOWFLAKE_EXAMPLE.REPLICATION_CALC;
 USE WAREHOUSE SFE_REPLICATION_CALC_WH;
 
-/*******************************************************************************
+/*****************************************************************************
  * SECTION 4: Stages
- ******************************************************************************/
+ *****************************************************************************/
 CREATE OR REPLACE STAGE PRICE_STAGE
     COMMENT = 'Pricing ingest assets (Expires: 2026-01-07)';
 
 CREATE OR REPLACE STAGE STREAMLIT_STAGE
     COMMENT = 'Streamlit app code (Expires: 2026-01-07)';
 
-/*******************************************************************************
+/*****************************************************************************
  * SECTION 5: Tables and Views
- ******************************************************************************/
+ *****************************************************************************/
 CREATE OR REPLACE TABLE PRICING_RAW (
     SOURCE_URL STRING,
     CONTENT_BASE64 STRING,
@@ -118,9 +118,9 @@ FROM LATEST_USAGE
 WHERE RN = 1
 QUALIFY RN = 1;
 
-/*******************************************************************************
+/*****************************************************************************
  * SECTION 6: Pricing Refresh Procedure (Snowpark)
- ******************************************************************************/
+ *****************************************************************************/
 CREATE OR REPLACE PROCEDURE REFRESH_PRICING_FROM_PDF()
 RETURNS STRING
 LANGUAGE PYTHON
@@ -212,9 +212,9 @@ def run(session: Session) -> str:
     )
 $$;
 
-/*******************************************************************************
+/*****************************************************************************
  * SECTION 7: Scheduled Task
- ******************************************************************************/
+ *****************************************************************************/
 CREATE OR REPLACE TASK PRICING_REFRESH_TASK
     WAREHOUSE = SFE_REPLICATION_CALC_WH
     SCHEDULE = 'USING CRON 0 7 * * * UTC'
@@ -224,9 +224,9 @@ AS
 
 ALTER TASK PRICING_REFRESH_TASK RESUME;
 
-/*******************************************************************************
+/*****************************************************************************
  * SECTION 8: Grants (minimal for demo)
- ******************************************************************************/
+ *****************************************************************************/
 GRANT USAGE ON WAREHOUSE SFE_REPLICATION_CALC_WH TO ROLE ACCOUNTADMIN;
 GRANT USAGE ON SCHEMA SNOWFLAKE_EXAMPLE.REPLICATION_CALC TO ROLE ACCOUNTADMIN;
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA SNOWFLAKE_EXAMPLE.REPLICATION_CALC
@@ -238,9 +238,9 @@ GRANT USAGE ON STAGE PRICE_STAGE TO ROLE ACCOUNTADMIN;
 GRANT USAGE ON STAGE STREAMLIT_STAGE TO ROLE ACCOUNTADMIN;
 GRANT USAGE ON PROCEDURE REFRESH_PRICING_FROM_PDF() TO ROLE ACCOUNTADMIN;
 
-/*******************************************************************************
+/*****************************************************************************
  * SECTION 9: Seed and Status
- ******************************************************************************/
+ *****************************************************************************/
 CALL REFRESH_PRICING_FROM_PDF();
 
 SELECT
