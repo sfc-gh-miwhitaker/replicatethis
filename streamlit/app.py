@@ -48,11 +48,22 @@ def run_pricing_refresh():
 
 def get_cloud_and_region():
     try:
-        cloud_result = session.sql("SELECT CURRENT_CLOUD()").collect()
+        # Get region name (format: cloud.region_name)
         region_result = session.sql("SELECT CURRENT_REGION()").collect()
+        region_full = region_result[0][0] if region_result else "AWS_US_EAST_1"
 
-        cloud = cloud_result[0][0] if cloud_result else "AWS"
-        region = region_result[0][0] if region_result else "us-east-1"
+        # Parse cloud from region string (e.g., "AWS_US_EAST_1" -> "AWS", "us-east-1")
+        if region_full:
+            parts = region_full.split("_", 1)
+            if len(parts) >= 2:
+                cloud = parts[0]  # AWS, AZURE, or GCP
+                region = parts[1].lower().replace("_", "-")  # us-east-1
+            else:
+                cloud = "AWS"
+                region = region_full.lower()
+        else:
+            cloud = "AWS"
+            region = "us-east-1"
 
         return cloud, region
     except Exception as e:
@@ -67,7 +78,9 @@ def cost_lookup(pricing_rows, service_type, cloud, region):
             and r.CLOUD.upper() == cloud.upper()
             and r.REGION.upper() == region.upper()
         ):
-            return r.RATE, r.UNIT, r.IS_ESTIMATE
+            # Convert Decimal to float for calculations
+            rate = float(r.RATE) if r.RATE is not None else None
+            return rate, r.UNIT, r.IS_ESTIMATE
     return None, None, True
 
 
@@ -191,7 +204,8 @@ def main():
     refresh_per_day = st.slider("Refreshes per day", 0.0, 24.0, 1.0, 0.5,
                                   help="Number of replication refresh operations per day")
 
-    total_size_tb = sum(db_options[n].SIZE_TB for n in selected_dbs) if selected_dbs else 0
+    # Convert Decimal to float for calculations
+    total_size_tb = float(sum(db_options[n].SIZE_TB for n in selected_dbs)) if selected_dbs else 0.0
     change_tb_per_refresh = total_size_tb * (daily_change_pct / 100.0)
     daily_transfer_tb = change_tb_per_refresh * refresh_per_day
 
@@ -222,7 +236,7 @@ def main():
                 age_indicator = ""
                 if hasattr(db_info, 'AS_OF'):
                     age_indicator = f" (as of {db_info.AS_OF})"
-                st.write(f"- {db_name}: {db_info.SIZE_TB:.3f} TB{age_indicator}")
+                st.write(f"- {db_name}: {float(db_info.SIZE_TB):.3f} TB{age_indicator}")
 
     col1, col2 = st.columns(2)
 
