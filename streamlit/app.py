@@ -192,7 +192,7 @@ def main():
         "Price per credit (USD)",
         min_value=0.50,
         max_value=10.00,
-        value=2.50,
+        value=4.00,
         step=0.10,
         help="Enter your contract price per credit. Standard list price is ~$2-4 depending on edition and region."
     )
