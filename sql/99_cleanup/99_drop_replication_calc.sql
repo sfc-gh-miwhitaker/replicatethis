@@ -73,7 +73,7 @@ USE ROLE ACCOUNTADMIN;
 DROP INTEGRATION IF EXISTS SFE_SNOWFLAKE_PDF_ACCESS;
 
 -- Drop network rule (allows HTTPS to www.snowflake.com)
-DROP NETWORK RULE IF EXISTS SFE_SNOWFLAKE_PDF_NETWORK_RULE;
+DROP NETWORK RULE IF EXISTS SNOWFLAKE_EXAMPLE.TOOLS.SFE_SNOWFLAKE_PDF_NETWORK_RULE;
 
 /*****************************************************************************
  * VERIFICATION: Show remaining objects

@@ -41,10 +41,16 @@ USE ROLE ACCOUNTADMIN;
 USE WAREHOUSE COMPUTE_WH;
 
 /*****************************************************************************
- * SECTION 1: Account-Level Objects (ACCOUNTADMIN required)
- * Creates: API Integration, Network Rule, External Access Integration
+ * SECTION 1: Database & Account-Level Objects (ACCOUNTADMIN required)
  *****************************************************************************/
--- If SFE_GIT_API_INTEGRATION already exists, this is idempotent.
+-- Create database FIRST (required for Network Rule which needs DB context)
+CREATE DATABASE IF NOT EXISTS SNOWFLAKE_EXAMPLE;
+USE DATABASE SNOWFLAKE_EXAMPLE;
+
+CREATE SCHEMA IF NOT EXISTS SNOWFLAKE_EXAMPLE.TOOLS
+    COMMENT = 'DEMO TOOLS (Expires: 2026-01-07)';
+
+-- API Integration (account-level, no DB context needed)
 CREATE OR REPLACE API INTEGRATION SFE_GIT_API_INTEGRATION
     API_PROVIDER = git_https_api
     API_ALLOWED_PREFIXES = (
@@ -53,11 +59,9 @@ CREATE OR REPLACE API INTEGRATION SFE_GIT_API_INTEGRATION
     ENABLED = TRUE
     COMMENT = 'DEMO: Replication cost calc (Expires: 2026-01-07)';
 
-/*****************************************************************************
- * External Access for PDF Download (Native Snowflake)
- *****************************************************************************/
 -- Network rule to allow HTTPS egress to Snowflake's pricing PDF
-CREATE OR REPLACE NETWORK RULE SFE_SNOWFLAKE_PDF_NETWORK_RULE
+-- (Requires database context - using SNOWFLAKE_EXAMPLE.TOOLS schema)
+CREATE OR REPLACE NETWORK RULE SNOWFLAKE_EXAMPLE.TOOLS.SFE_SNOWFLAKE_PDF_NETWORK_RULE
     MODE = EGRESS
     TYPE = HOST_PORT
     VALUE_LIST = ('www.snowflake.com:443')
@@ -65,17 +69,12 @@ CREATE OR REPLACE NETWORK RULE SFE_SNOWFLAKE_PDF_NETWORK_RULE
 
 -- External access integration for stored procedures
 CREATE OR REPLACE EXTERNAL ACCESS INTEGRATION SFE_SNOWFLAKE_PDF_ACCESS
-    ALLOWED_NETWORK_RULES = (SFE_SNOWFLAKE_PDF_NETWORK_RULE)
+    ALLOWED_NETWORK_RULES = (SNOWFLAKE_EXAMPLE.TOOLS.SFE_SNOWFLAKE_PDF_NETWORK_RULE)
     ENABLED = TRUE
     COMMENT = 'DEMO: External access for pricing PDF (Expires: 2026-01-07)';
 
 -- Grant SYSADMIN usage on the external access integration
 GRANT USAGE ON INTEGRATION SFE_SNOWFLAKE_PDF_ACCESS TO ROLE SYSADMIN;
-
-CREATE DATABASE IF NOT EXISTS SNOWFLAKE_EXAMPLE;
-
-CREATE SCHEMA IF NOT EXISTS SNOWFLAKE_EXAMPLE.TOOLS
-    COMMENT = 'DEMO TOOLS (Expires: 2026-01-07)';
 
 CREATE OR REPLACE GIT REPOSITORY SNOWFLAKE_EXAMPLE.TOOLS.REPLICATE_THIS_REPO
     API_INTEGRATION = SFE_GIT_API_INTEGRATION
