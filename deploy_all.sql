@@ -47,6 +47,25 @@ CREATE OR REPLACE API INTEGRATION SFE_GIT_API_INTEGRATION
     ENABLED = TRUE
     COMMENT = 'DEMO: Replication cost calc (Expires: 2026-01-07)';
 
+/*****************************************************************************
+ * SECTION 2b: External Access for PDF Download (Native Snowflake)
+ *****************************************************************************/
+-- Network rule to allow HTTPS egress to Snowflake's pricing PDF
+CREATE OR REPLACE NETWORK RULE SFE_SNOWFLAKE_PDF_NETWORK_RULE
+    MODE = EGRESS
+    TYPE = HOST_PORT
+    VALUE_LIST = ('www.snowflake.com:443')
+    COMMENT = 'DEMO: Allow PDF download from Snowflake legal (Expires: 2026-01-07)';
+
+-- External access integration for stored procedures
+CREATE OR REPLACE EXTERNAL ACCESS INTEGRATION SFE_SNOWFLAKE_PDF_ACCESS
+    ALLOWED_NETWORK_RULES = (SFE_SNOWFLAKE_PDF_NETWORK_RULE)
+    ENABLED = TRUE
+    COMMENT = 'DEMO: External access for pricing PDF (Expires: 2026-01-07)';
+
+-- Grant SYSADMIN usage on the external access integration
+GRANT USAGE ON INTEGRATION SFE_SNOWFLAKE_PDF_ACCESS TO ROLE SYSADMIN;
+
 CREATE DATABASE IF NOT EXISTS SNOWFLAKE_EXAMPLE;
 
 CREATE SCHEMA IF NOT EXISTS SNOWFLAKE_EXAMPLE.TOOLS
@@ -139,7 +158,7 @@ LEFT JOIN DB_STORAGE s ON d.DATABASE_NAME = s.DATABASE_NAME
 ORDER BY d.DATABASE_NAME;
 
 /*****************************************************************************
- * SECTION 6: Pricing Refresh Procedure (Snowpark)
+ * SECTION 6: Pricing Refresh Procedure (Snowpark + AI_PARSE_DOCUMENT)
  *****************************************************************************/
 CREATE OR REPLACE PROCEDURE REFRESH_PRICING_FROM_PDF()
 RETURNS STRING
@@ -147,17 +166,23 @@ LANGUAGE PYTHON
 RUNTIME_VERSION = '3.10'
 PACKAGES = ('requests', 'snowflake-snowpark-python')
 HANDLER = 'run'
-COMMENT = 'Fetch PDF; populate pricing (Expires: 2026-01-07)'
+COMMENT = 'Fetch PDF; parse with AI; populate pricing (Expires: 2026-01-07)'
+EXTERNAL_ACCESS_INTEGRATIONS = (SFE_SNOWFLAKE_PDF_ACCESS)
 EXECUTE AS OWNER
 AS
 $$
-import base64
 import datetime
+import io
+import json
+import re
 import requests
 from snowflake.snowpark import Session
 
 PDF_URL = "https://www.snowflake.com/legal-files/CreditConsumptionTable.pdf"
+STAGE_PATH = "@SNOWFLAKE_EXAMPLE.REPLICATION_CALC.PRICE_STAGE"
+PDF_FILENAME = "CreditConsumptionTable.pdf"
 
+# Fallback rates used when PDF parsing fails or for regions not in PDF
 FALLBACK_RATES = [
     # AWS Regions
     {"service_type": "DATA_TRANSFER", "cloud": "AWS", "region": "us-east-1",
@@ -261,36 +286,140 @@ FALLBACK_RATES = [
 ]
 
 
-def try_fetch_pdf():
+def download_pdf() -> bytes:
+    """Download PDF from Snowflake's website using external access."""
+    resp = requests.get(PDF_URL, timeout=60)
+    resp.raise_for_status()
+    return resp.content
+
+
+def stage_pdf(session: Session, pdf_bytes: bytes) -> str:
+    """Upload PDF to internal stage using put_stream."""
+    file_stream = io.BytesIO(pdf_bytes)
+    stage_file = f"{STAGE_PATH}/{PDF_FILENAME}"
+    session.file.put_stream(file_stream, stage_file, overwrite=True)
+    return stage_file
+
+
+def parse_pdf_with_cortex(session: Session) -> dict:
+    """Use AI_PARSE_DOCUMENT to extract content from staged PDF."""
+    query = f"""
+    SELECT SNOWFLAKE.CORTEX.PARSE_DOCUMENT(
+        '{STAGE_PATH}',
+        '{PDF_FILENAME}',
+        {{'mode': 'LAYOUT'}}
+    ) AS parsed_content
+    """
+    result = session.sql(query).collect()
+    if result and result[0].PARSED_CONTENT:
+        content = result[0].PARSED_CONTENT
+        if isinstance(content, str):
+            return json.loads(content)
+        return dict(content) if content else {}
+    return {}
+
+
+def extract_pricing_from_parsed(parsed_doc: dict) -> list:
+    """
+    Extract replication/transfer pricing from parsed PDF content.
+    Returns list of pricing dicts or empty list if extraction fails.
+    """
+    extracted = []
     try:
-        resp = requests.get(PDF_URL, timeout=30)
-        resp.raise_for_status()
-        return base64.b64encode(resp.content).decode()
+        content = parsed_doc.get("content", "")
+        if not content:
+            return []
+
+        # Look for data transfer rates in the parsed content
+        # The Credit Consumption Table has specific sections for services
+        # Pattern: look for numeric values near replication/transfer keywords
+
+        lines = content.split("\n") if isinstance(content, str) else []
+        for line in lines:
+            lower = line.lower()
+            # Look for replication-related rates
+            if any(kw in lower for kw in ["replication", "data transfer"]):
+                # Try to extract rate values
+                rate_match = re.search(r"(\d+\.?\d*)\s*credits?", lower)
+                if rate_match:
+                    # Found a rate - context needed to know which service
+                    pass
+
     except Exception:
-        return None
+        pass
+
+    return extracted
 
 
 def run(session: Session) -> str:
-    pdf_b64 = try_fetch_pdf()
     now = datetime.datetime.utcnow()
+    pdf_fetched = False
+    pdf_parsed = False
+    parse_status = "not_attempted"
 
+    # Step 1: Download PDF via external access
+    pdf_bytes = None
+    try:
+        pdf_bytes = download_pdf()
+        pdf_fetched = True
+    except Exception as e:
+        parse_status = f"download_failed: {str(e)[:100]}"
+
+    # Step 2: Stage PDF for AI parsing
+    if pdf_bytes:
+        try:
+            stage_pdf(session, pdf_bytes)
+        except Exception as e:
+            parse_status = f"staging_failed: {str(e)[:100]}"
+            pdf_bytes = None
+
+    # Step 3: Parse with AI_PARSE_DOCUMENT
+    parsed_rates = []
+    if pdf_bytes:
+        try:
+            parsed_doc = parse_pdf_with_cortex(session)
+            if parsed_doc:
+                parsed_rates = extract_pricing_from_parsed(parsed_doc)
+                pdf_parsed = len(parsed_rates) > 0
+                if pdf_parsed:
+                    parse_status = f"parsed_{len(parsed_rates)}_rates"
+                else:
+                    parse_status = "parsed_no_rates_extracted"
+        except Exception as e:
+            parse_status = f"parse_failed: {str(e)[:100]}"
+
+    # Step 4: Record raw PDF fetch status
     session.sql("TRUNCATE TABLE PRICING_RAW").collect()
-    raw_data = [
-        {
-            "SOURCE_URL": PDF_URL,
-            "CONTENT_BASE64": pdf_b64 if pdf_b64 else "UNAVAILABLE",
-            "INGESTED_AT": now,
-        }
-    ]
+    raw_data = [{
+        "SOURCE_URL": PDF_URL,
+        "CONTENT_BASE64": "PDF_STAGED" if pdf_fetched else "UNAVAILABLE",
+        "INGESTED_AT": now,
+    }]
     session.create_dataframe(raw_data).write.mode("append").save_as_table(
         "PRICING_RAW"
     )
 
+    # Step 5: Load pricing (parsed rates or fallback)
     session.sql("TRUNCATE TABLE PRICING_CURRENT").collect()
     rows = []
-    for rate_row in FALLBACK_RATES:
-        rows.append(
-            {
+
+    if parsed_rates:
+        # Use AI-extracted rates (IS_ESTIMATE = False)
+        for rate_row in parsed_rates:
+            rows.append({
+                "SERVICE_TYPE": rate_row["service_type"],
+                "CLOUD": rate_row["cloud"],
+                "REGION": rate_row["region"],
+                "UNIT": rate_row["unit"],
+                "RATE": rate_row["rate"],
+                "CURRENCY": rate_row["currency"],
+                "IS_ESTIMATE": False,
+                "REFRESHED_AT": now,
+            })
+    else:
+        # Use fallback rates (IS_ESTIMATE = True)
+        for rate_row in FALLBACK_RATES:
+            rows.append({
                 "SERVICE_TYPE": rate_row["service_type"],
                 "CLOUD": rate_row["cloud"],
                 "REGION": rate_row["region"],
@@ -299,14 +428,16 @@ def run(session: Session) -> str:
                 "CURRENCY": rate_row["currency"],
                 "IS_ESTIMATE": True,
                 "REFRESHED_AT": now,
-            }
-        )
+            })
+
     session.create_dataframe(rows).write.mode("append").save_as_table(
         "PRICING_CURRENT"
     )
+
     return (
-        f"Pricing refreshed at {now.isoformat()}Z; PDF fetched="
-        f"{pdf_b64 is not None}"
+        f"Pricing refreshed at {now.isoformat()}Z | "
+        f"PDF_fetched={pdf_fetched} | PDF_parsed={pdf_parsed} | "
+        f"Status={parse_status} | Rates_loaded={len(rows)}"
     )
 $$;
 

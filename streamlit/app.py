@@ -118,7 +118,7 @@ def calculate_monthly_projection(daily_transfer_cost, daily_compute_cost, storag
     }
 
 
-def generate_enhanced_csv(assumptions, costs, projections):
+def generate_enhanced_csv(assumptions, costs, projections, price_per_credit):
     csv_lines = ["# Snowflake Replication Cost Estimate"]
     csv_lines.append("")
     csv_lines.append("# Assumptions")
@@ -130,21 +130,45 @@ def generate_enhanced_csv(assumptions, costs, projections):
     csv_lines.append(f"Daily Change Rate (%),{assumptions['daily_change_pct']:.1f}")
     csv_lines.append(f"Refreshes Per Day,{assumptions['refresh_per_day']:.1f}")
     csv_lines.append(f"Selected Databases,\"{assumptions['selected_dbs']}\"")
+    csv_lines.append(f"Price Per Credit (USD),{price_per_credit:.2f}")
     csv_lines.append("")
-    csv_lines.append("# Daily Costs (Credits)")
-    csv_lines.append("Component,Credits,Is Estimate")
-    csv_lines.append(f"Data Transfer,{costs['transfer_cost']:.2f},{costs['transfer_est']}")
-    csv_lines.append(f"Replication Compute,{costs['compute_cost']:.2f},{costs['compute_est']}")
+    csv_lines.append("# Daily Costs")
+    csv_lines.append("Component,Credits,USD,Is Estimate")
+    csv_lines.append(
+        f"Data Transfer,{costs['transfer_cost']:.2f},"
+        f"${costs['transfer_cost'] * price_per_credit:.2f},{costs['transfer_est']}"
+    )
+    csv_lines.append(
+        f"Replication Compute,{costs['compute_cost']:.2f},"
+        f"${costs['compute_cost'] * price_per_credit:.2f},{costs['compute_est']}"
+    )
     csv_lines.append("")
-    csv_lines.append("# Monthly Costs (Credits)")
-    csv_lines.append("Component,Credits")
-    csv_lines.append(f"Data Transfer (30 days),{projections['monthly_transfer']:.2f}")
-    csv_lines.append(f"Replication Compute (30 days),{projections['monthly_compute']:.2f}")
-    csv_lines.append(f"Storage,{projections['monthly_storage']:.2f}")
-    csv_lines.append(f"Serverless Maintenance,{projections['monthly_serverless']:.2f}")
-    csv_lines.append(f"Monthly Total,{projections['monthly_total']:.2f}")
+    csv_lines.append("# Monthly Costs")
+    csv_lines.append("Component,Credits,USD")
+    csv_lines.append(
+        f"Data Transfer (30 days),{projections['monthly_transfer']:.2f},"
+        f"${projections['monthly_transfer'] * price_per_credit:.2f}"
+    )
+    csv_lines.append(
+        f"Replication Compute (30 days),{projections['monthly_compute']:.2f},"
+        f"${projections['monthly_compute'] * price_per_credit:.2f}"
+    )
+    csv_lines.append(
+        f"Storage,{projections['monthly_storage']:.2f},"
+        f"${projections['monthly_storage'] * price_per_credit:.2f}"
+    )
+    csv_lines.append(
+        f"Serverless Maintenance,{projections['monthly_serverless']:.2f},"
+        f"${projections['monthly_serverless'] * price_per_credit:.2f}"
+    )
+    csv_lines.append(
+        f"Monthly Total,{projections['monthly_total']:.2f},"
+        f"${projections['monthly_total'] * price_per_credit:.2f}"
+    )
     csv_lines.append("")
-    csv_lines.append(f"# Annual Projection (Credits): {projections['annual_total']:.2f}")
+    csv_lines.append("# Annual Projection")
+    csv_lines.append(f"Annual Credits,{projections['annual_total']:.2f}")
+    csv_lines.append(f"Annual USD,${projections['annual_total'] * price_per_credit:,.2f}")
 
     return "\n".join(csv_lines)
 
@@ -161,6 +185,18 @@ def main():
     st.caption(
         "Business Critical pricing; rates sourced from Credit Consumption Table (estimates when parsing unavailable)."
     )
+
+    # Price per credit input for discount/contract pricing
+    st.sidebar.header("💰 Pricing Configuration")
+    price_per_credit = st.sidebar.number_input(
+        "Price per credit (USD)",
+        min_value=0.50,
+        max_value=10.00,
+        value=2.50,
+        step=0.10,
+        help="Enter your contract price per credit. Standard list price is ~$2-4 depending on edition and region."
+    )
+    st.sidebar.caption(f"All USD costs calculated at ${price_per_credit:.2f}/credit")
 
     pricing_rows, refreshed_at = load_pricing()
 
@@ -257,27 +293,63 @@ def main():
     col1, col2 = st.columns(2)
 
     with col1:
-        st.subheader("Daily Costs (Credits)")
+        st.subheader("Daily Costs")
         st.table(
             [
-                {"Component": "Data Transfer", "Credits": f"{transfer_cost:.2f}", "Estimate": transfer_est},
-                {"Component": "Replication Compute", "Credits": f"{compute_cost:.2f}", "Estimate": compute_est},
+                {
+                    "Component": "Data Transfer",
+                    "Credits": f"{transfer_cost:.2f}",
+                    "USD": f"${transfer_cost * price_per_credit:.2f}",
+                    "Estimate": transfer_est
+                },
+                {
+                    "Component": "Replication Compute",
+                    "Credits": f"{compute_cost:.2f}",
+                    "USD": f"${compute_cost * price_per_credit:.2f}",
+                    "Estimate": compute_est
+                },
             ]
         )
 
     with col2:
-        st.subheader("Monthly Costs (Credits)")
+        st.subheader("Monthly Costs")
         st.table(
             [
-                {"Component": "Transfer (30d)", "Credits": f"{projections['monthly_transfer']:.2f}"},
-                {"Component": "Compute (30d)", "Credits": f"{projections['monthly_compute']:.2f}"},
-                {"Component": "Storage", "Credits": f"{storage_cost:.2f}", "Estimate": storage_est},
-                {"Component": "Serverless Maint", "Credits": f"{serverless_cost:.2f}", "Estimate": serverless_est},
+                {
+                    "Component": "Transfer (30d)",
+                    "Credits": f"{projections['monthly_transfer']:.2f}",
+                    "USD": f"${projections['monthly_transfer'] * price_per_credit:.2f}"
+                },
+                {
+                    "Component": "Compute (30d)",
+                    "Credits": f"{projections['monthly_compute']:.2f}",
+                    "USD": f"${projections['monthly_compute'] * price_per_credit:.2f}"
+                },
+                {
+                    "Component": "Storage",
+                    "Credits": f"{storage_cost:.2f}",
+                    "USD": f"${storage_cost * price_per_credit:.2f}",
+                    "Estimate": storage_est
+                },
+                {
+                    "Component": "Serverless Maint",
+                    "Credits": f"{serverless_cost:.2f}",
+                    "USD": f"${serverless_cost * price_per_credit:.2f}",
+                    "Estimate": serverless_est
+                },
             ]
         )
 
-    st.metric("Monthly Total", f"{projections['monthly_total']:.2f} credits")
-    st.metric("Annual Projection", f"{projections['annual_total']:.2f} credits")
+    # Summary metrics with both credits and USD
+    col_m1, col_m2 = st.columns(2)
+    with col_m1:
+        st.metric("Monthly Total", f"{projections['monthly_total']:.2f} credits")
+        st.metric("Annual Credits", f"{projections['annual_total']:.2f} credits")
+    with col_m2:
+        monthly_usd = projections['monthly_total'] * price_per_credit
+        annual_usd = projections['annual_total'] * price_per_credit
+        st.metric("Monthly Total (USD)", f"${monthly_usd:,.2f}")
+        st.metric("Annual Projection (USD)", f"${annual_usd:,.2f}")
 
     if pricing_rows:
         st.subheader("Cost Optimization")
@@ -310,7 +382,7 @@ def main():
         'compute_est': compute_est
     }
 
-    csv_data = generate_enhanced_csv(assumptions, costs, projections)
+    csv_data = generate_enhanced_csv(assumptions, costs, projections, price_per_credit)
 
     st.download_button(
         label="Download detailed estimate (CSV)",

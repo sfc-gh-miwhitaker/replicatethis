@@ -19,7 +19,7 @@
  *****************************************************************************/
 
 /*****************************************************************************
- * SECTION 1: Suspend and Drop Tasks
+ * SECTION 1: Suspend and Drop Tasks (SYSADMIN)
  * Must suspend before dropping to avoid active task errors
  *****************************************************************************/
 USE ROLE SYSADMIN;
@@ -55,6 +55,18 @@ DROP SCHEMA IF EXISTS SNOWFLAKE_EXAMPLE.REPLICATION_CALC CASCADE;
  *****************************************************************************/
 
 DROP WAREHOUSE IF EXISTS SFE_REPLICATION_CALC_WH;
+
+/*****************************************************************************
+ * SECTION 5: Drop External Access Objects (ACCOUNTADMIN)
+ * These are project-specific and safe to remove
+ *****************************************************************************/
+USE ROLE ACCOUNTADMIN;
+
+-- Drop external access integration (used by pricing refresh procedure)
+DROP INTEGRATION IF EXISTS SFE_SNOWFLAKE_PDF_ACCESS;
+
+-- Drop network rule (allows HTTPS to www.snowflake.com)
+DROP NETWORK RULE IF EXISTS SFE_SNOWFLAKE_PDF_NETWORK_RULE;
 
 /*****************************************************************************
  * VERIFICATION: Show remaining objects
