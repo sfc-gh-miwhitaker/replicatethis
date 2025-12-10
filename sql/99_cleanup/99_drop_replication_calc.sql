@@ -18,11 +18,18 @@
  * - SNOWFLAKE_EXAMPLE.TOOLS schema (shared Git repos)
  *****************************************************************************/
 
+-- ============================================================================
+-- CONTEXT SETTING (MANDATORY)
+-- ============================================================================
+-- Cleanup script: Uses SYSADMIN for most drops, ACCOUNTADMIN for integrations.
+-- No specific database/warehouse context needed (drops are fully qualified).
+-- ============================================================================
+USE ROLE SYSADMIN;
+
 /*****************************************************************************
- * SECTION 1: Suspend and Drop Tasks (SYSADMIN)
+ * SECTION 1: Suspend and Drop Tasks
  * Must suspend before dropping to avoid active task errors
  *****************************************************************************/
-USE ROLE SYSADMIN;
 
 -- Suspend task first (required before drop)
 ALTER TASK IF EXISTS SNOWFLAKE_EXAMPLE.REPLICATION_CALC.PRICING_REFRESH_TASK

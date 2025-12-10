@@ -30,13 +30,19 @@ SELECT
         ELSE 'ACTIVE: Expires ' || TO_VARCHAR($EXPIRATION_DATE)
     END AS EXPIRATION_STATUS;
 
-/*****************************************************************************
- * SECTION 1: Context
- *****************************************************************************/
+-- ============================================================================
+-- CONTEXT SETTING (MANDATORY)
+-- ============================================================================
+-- Bootstrap script: Creates project warehouse, so uses COMPUTE_WH initially.
+-- ACCOUNTADMIN required for: API Integration, Network Rule, External Access.
+-- Drops to SYSADMIN immediately after account-level objects are created.
+-- ============================================================================
 USE ROLE ACCOUNTADMIN;
+USE WAREHOUSE COMPUTE_WH;
 
 /*****************************************************************************
- * SECTION 2: Git Integration (optional if repo already staged)
+ * SECTION 1: Account-Level Objects (ACCOUNTADMIN required)
+ * Creates: API Integration, Network Rule, External Access Integration
  *****************************************************************************/
 -- If SFE_GIT_API_INTEGRATION already exists, this is idempotent.
 CREATE OR REPLACE API INTEGRATION SFE_GIT_API_INTEGRATION
@@ -48,7 +54,7 @@ CREATE OR REPLACE API INTEGRATION SFE_GIT_API_INTEGRATION
     COMMENT = 'DEMO: Replication cost calc (Expires: 2026-01-07)';
 
 /*****************************************************************************
- * SECTION 2b: External Access for PDF Download (Native Snowflake)
+ * External Access for PDF Download (Native Snowflake)
  *****************************************************************************/
 -- Network rule to allow HTTPS egress to Snowflake's pricing PDF
 CREATE OR REPLACE NETWORK RULE SFE_SNOWFLAKE_PDF_NETWORK_RULE
@@ -79,11 +85,13 @@ CREATE OR REPLACE GIT REPOSITORY SNOWFLAKE_EXAMPLE.TOOLS.REPLICATE_THIS_REPO
 -- Fetch latest code from GitHub
 ALTER GIT REPOSITORY SNOWFLAKE_EXAMPLE.TOOLS.REPLICATE_THIS_REPO FETCH;
 
--- Switch to SYSADMIN for all object creation (security best practice)
+-- ============================================================================
+-- CONTEXT SWITCH: SYSADMIN for all remaining objects (least privilege)
+-- ============================================================================
 USE ROLE SYSADMIN;
 
 /*****************************************************************************
- * SECTION 3: Warehouse & Schema
+ * SECTION 2: Warehouse & Schema (SYSADMIN)
  *****************************************************************************/
 CREATE WAREHOUSE IF NOT EXISTS SFE_REPLICATION_CALC_WH
     WAREHOUSE_SIZE = XSMALL
@@ -102,7 +110,7 @@ USE SCHEMA SNOWFLAKE_EXAMPLE.REPLICATION_CALC;
 USE WAREHOUSE SFE_REPLICATION_CALC_WH;
 
 /*****************************************************************************
- * SECTION 4: Stages
+ * SECTION 3: Stages & Streamlit
  *****************************************************************************/
 CREATE OR REPLACE STAGE PRICE_STAGE
     COMMENT = 'Pricing ingest assets (Expires: 2026-01-07)';
@@ -115,7 +123,7 @@ CREATE OR REPLACE STREAMLIT REPLICATION_CALCULATOR
     COMMENT = 'DEMO: DR/Replication Cost Calculator (Expires: 2026-01-07)';
 
 /*****************************************************************************
- * SECTION 5: Tables and Views
+ * SECTION 4: Tables and Views
  *****************************************************************************/
 CREATE OR REPLACE TABLE PRICING_RAW (
     SOURCE_URL STRING,
@@ -158,7 +166,7 @@ LEFT JOIN DB_STORAGE s ON d.DATABASE_NAME = s.DATABASE_NAME
 ORDER BY d.DATABASE_NAME;
 
 /*****************************************************************************
- * SECTION 6: Pricing Refresh Procedure (Snowpark + AI_PARSE_DOCUMENT)
+ * SECTION 5: Pricing Refresh Procedure (Snowpark + AI_PARSE_DOCUMENT)
  *****************************************************************************/
 CREATE OR REPLACE PROCEDURE REFRESH_PRICING_FROM_PDF()
 RETURNS STRING
@@ -442,7 +450,7 @@ def run(session: Session) -> str:
 $$;
 
 /*****************************************************************************
- * SECTION 7: Scheduled Task
+ * SECTION 6: Scheduled Task
  *****************************************************************************/
 CREATE OR REPLACE TASK PRICING_REFRESH_TASK
     WAREHOUSE = SFE_REPLICATION_CALC_WH
@@ -454,7 +462,7 @@ AS
 ALTER TASK PRICING_REFRESH_TASK RESUME;
 
 /*****************************************************************************
- * SECTION 8: Grants (Demo Access)
+ * SECTION 7: Grants (Demo Access)
  *****************************************************************************/
 
 -- Grant ACCOUNT_USAGE access to SYSADMIN (required for DB_METADATA view)
@@ -478,7 +486,7 @@ GRANT USAGE ON STREAMLIT REPLICATION_CALCULATOR TO ROLE PUBLIC;
 GRANT OPERATE ON TASK PRICING_REFRESH_TASK TO ROLE SYSADMIN;
 
 /*****************************************************************************
- * SECTION 9: Seed and Status
+ * SECTION 8: Seed and Status
  *****************************************************************************/
 CALL REFRESH_PRICING_FROM_PDF();
 

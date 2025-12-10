@@ -1,6 +1,6 @@
 # Data Flow - Streamlit DR Replication Cost Calculator
 Author: SE Community
-Last Updated: 2025-12-08
+Last Updated: 2025-12-10
 Expires: 2026-01-07
 Status: Reference Implementation
 
@@ -17,99 +17,90 @@ graph TB
     PDF[Credit Consumption PDF<br/>snowflake.com/legal-files/CreditConsumptionTable.pdf]
   end
   subgraph "SNOWFLAKE_EXAMPLE.REPLICATION_CALC"
-    Stage[PRICE_STAGE]
+    Stage[PRICE_STAGE<br/>PDF staging]
     Raw[(PRICING_RAW<br/>Audit Trail)]
-    Fallback[(PRICING_FALLBACK<br/>Static Rates)]
-    History[(PRICING_HISTORY<br/>Rate Changes)]
-    Proc[REFRESH_PRICING_FROM_PDF<br/>Snowpark Python<br/>3 retries, 5s delay]
+    Proc[REFRESH_PRICING_FROM_PDF<br/>Snowpark Python<br/>AI_PARSE_DOCUMENT]
     Current[(PRICING_CURRENT<br/>Active Rates)]
-    DBMeta[(DB_METADATA view<br/>with staleness)]
-    Streamlit[Streamlit App<br/>Error Handling<br/>Monthly Projections]
-    Task1[PRICING_REFRESH_TASK<br/>Daily 7am UTC]
-    Task2[EXPIRATION_CLEANUP_TASK<br/>Auto-cleanup 2026-01-08]
+    DBMeta[(DB_METADATA view)]
+    Streamlit[Streamlit App<br/>Cost Calculator]
+    Task[PRICING_REFRESH_TASK<br/>Daily 7am UTC]
   end
   subgraph "SNOWFLAKE.ACCOUNT_USAGE"
-    DBUsage[(DATABASE_STORAGE_USAGE_HISTORY)]
+    Storage[(TABLE_STORAGE_METRICS)]
   end
   subgraph "GitHub Repository"
     GitRepo[Git Repo<br/>sfc-gh-miwhitaker/replicatethis]
   end
 
   GitRepo -->|deployed from| Streamlit
-  PDF -->|GET with retry| Proc
-  Proc -->|stores base64| Raw
-  Proc -->|archives old| History
-  Current -->|on refresh| History
-  Fallback -->|if PDF fails| Proc
+  PDF -->|External Access| Proc
+  Proc -->|stages PDF| Stage
+  Proc -->|AI_PARSE_DOCUMENT| Stage
+  Proc -->|records fetch| Raw
   Proc -->|truncate & reload| Current
-  DBUsage -->|latest + age| DBMeta
+  Storage -->|SUM ACTIVE_BYTES| DBMeta
   DBMeta --> Streamlit
   Current --> Streamlit
-  Streamlit -->|daily + monthly costs| User[End User]
+  Streamlit -->|costs in Credits + USD| User[End User]
   Streamlit -->|CSV export| User
-  Task1 -->|triggers| Proc
-  Task2 -->|on expiration| Cleanup[Drop Schema/WH]
+  Task -->|triggers| Proc
 ```
 
 ## Component Descriptions
 
 ### Data Storage
-- **PRICE_STAGE**: Internal stage for staging assets if needed
-- **PRICING_RAW**: Audit trail with base64-encoded PDF content and fetch timestamps
-- **PRICING_FALLBACK**: Static fallback rates (12 rows) for AWS/Azure/GCP regions when PDF unavailable
-- **PRICING_HISTORY**: Historical rate tracking - archives old rates on each refresh for trend analysis
-- **PRICING_CURRENT**: Active normalized rates per cloud/region/service with estimate flags
-- **DB_METADATA**: Database sizes from ACCOUNT_USAGE with `DATA_AGE_DAYS` staleness indicator
+- **PRICE_STAGE**: Internal stage for staging the Credit Consumption PDF for AI parsing
+- **PRICING_RAW**: Audit trail recording PDF fetch status and timestamps
+- **PRICING_CURRENT**: Active normalized rates per cloud/region/service with IS_ESTIMATE flag
+- **DB_METADATA**: View joining INFORMATION_SCHEMA.DATABASES with TABLE_STORAGE_METRICS for sizes
 
 ### Processing
-- **REFRESH_PRICING_FROM_PDF**: Snowpark Python procedure with retry logic (3 attempts, 5s delay)
-  - Fetches PDF from Snowflake public URL
-  - Archives current pricing to history table
-  - Reloads current pricing from fallback rates
-  - Handles network errors gracefully
+- **REFRESH_PRICING_FROM_PDF**: Snowpark Python procedure with AI parsing
+  - Downloads PDF via External Access Integration
+  - Stages PDF to PRICE_STAGE
+  - Calls SNOWFLAKE.CORTEX.PARSE_DOCUMENT for text extraction
+  - Attempts to parse pricing tables from extracted content
+  - Falls back to hardcoded rates if parsing fails (IS_ESTIMATE = TRUE)
 - **PRICING_REFRESH_TASK**: Scheduled task running daily at 7am UTC
-- **EXPIRATION_CLEANUP_TASK**: Automated cleanup task (drops schema/warehouse/role on 2026-01-08)
 
 ### User Interface
-- **Streamlit App**: Auto-deployed from Git repository (lines 91-96 in deploy_all.sql)
+- **Streamlit App**: Auto-deployed from Git repository
   - Loads directly from `@SNOWFLAKE_EXAMPLE.TOOLS.REPLICATE_THIS_REPO/branches/main/streamlit`
   - No manual file uploads required
   - Interactive cost calculator with:
-    - Error handling for all database calls
-    - Cloud/region detection via SYSTEM$ functions
-    - Monthly and annual cost projections
+    - Price per credit input for contract/discount pricing
+    - Dual display: Credits AND USD costs
+    - Cloud/region selection (source auto-detected, destination selectable)
+    - Daily, monthly, and annual cost projections
     - Lowest-cost region recommendations
-    - Enhanced CSV export with full assumptions
-    - Input validation and helpful error messages
+    - CSV export with full assumptions and USD values
 
 ## Key Features
 
+### Native Snowflake Architecture
+- External Access Integration for PDF download (no external orchestration)
+- AI_PARSE_DOCUMENT for native PDF text extraction
+- Streamlit in Snowflake for UI (no external hosting)
+- Git repository integration (auto-deploy from GitHub)
+
 ### Reliability
-- Retry logic for PDF fetches
 - Fallback rates ensure app always functional
-- Comprehensive error handling in Streamlit
-- Historical rate tracking for auditing
+- Graceful error handling throughout
+- IS_ESTIMATE flag indicates data source (parsed vs fallback)
 
 ### Usability
-- Cost disclaimer prominently displayed
-- Database selection validation
-- Data staleness indicators
-- Monthly/annual projections (not just daily)
-- Region cost comparison feature
+- Price per credit slider for discount calculations
+- Costs shown in both Credits and USD
+- Database selection with size display
+- Data freshness indicator (AS_OF timestamp)
+- CSV export with all assumptions documented
 
 ### Security & Governance
-- Role-based security: ACCOUNTADMIN → SYSADMIN (owns objects) → PUBLIC (grants)
+- Role-based security: ACCOUNTADMIN → SYSADMIN → PUBLIC
+- Minimal privilege: ACCOUNTADMIN only for account-level objects
 - Objects owned by SYSADMIN (best practice)
 - PUBLIC granted read-only access (SELECT, USAGE)
-- Automated cleanup on expiration
 - Audit trail in PRICING_RAW table
-- Minimal privilege grants (no ACCOUNTADMIN dependencies for users)
-
-### Maintainability
-- Fallback rates in table (not hardcoded)
-- Rate history for troubleshooting
-- CI/CD validation for SQL
-- Pre-commit hooks for code quality
 
 ## Change History
 See `.cursor/DIAGRAM_CHANGELOG.md` for vhistory.
