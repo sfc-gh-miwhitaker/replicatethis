@@ -72,15 +72,31 @@ def get_cloud_and_region():
 
 
 def cost_lookup(pricing_rows, service_type, cloud, region):
+    # First try exact match
     for r in pricing_rows:
         if (
             r.SERVICE_TYPE == service_type
             and r.CLOUD.upper() == cloud.upper()
             and r.REGION.upper() == region.upper()
         ):
-            # Convert Decimal to float for calculations
             rate = float(r.RATE) if r.RATE is not None else None
             return rate, r.UNIT, r.IS_ESTIMATE
+
+    # Fallback: find any rate for same cloud and service type
+    for r in pricing_rows:
+        if (
+            r.SERVICE_TYPE == service_type
+            and r.CLOUD.upper() == cloud.upper()
+        ):
+            rate = float(r.RATE) if r.RATE is not None else None
+            return rate, r.UNIT, True  # Mark as estimate since region didn't match
+
+    # Last resort: find any rate for service type
+    for r in pricing_rows:
+        if r.SERVICE_TYPE == service_type:
+            rate = float(r.RATE) if r.RATE is not None else None
+            return rate, r.UNIT, True
+
     return None, None, True
 
 
@@ -270,16 +286,28 @@ def main():
 
     col1, col2 = st.columns(2)
     with col1:
-        st.write("**Source:**")
+        st.write("**Source (detected):**")
         st.write(f"Cloud: {source_cloud}")
         st.write(f"Region: {source_region}")
+        if transfer_rate:
+            st.caption(f"Transfer rate: {transfer_rate} credits/TB")
+        else:
+            st.caption("⚠️ No exact rate found - using fallback")
     with col2:
         st.write("**Destination:**")
         st.write(f"Cloud: {dest_cloud or '-'}")
         st.write(f"Region: {dest_region or '-'}")
-    st.write(
-        f"Daily change: {daily_change_pct}% | Refreshes/day: {refresh_per_day} | Selected DB size: {total_size_tb:.3f} TB"
-    )
+    # Show calculation inputs prominently
+    st.write(f"**Selected DB size:** {total_size_tb:.6f} TB ({total_size_tb * 1024:.3f} GB)")
+    st.write(f"**Daily change:** {daily_change_pct}% = {daily_transfer_tb:.6f} TB/day")
+    st.write(f"**Refreshes/day:** {refresh_per_day}")
+
+    # Warn if sizes are very small
+    if total_size_tb > 0 and total_size_tb < 0.01:
+        st.warning(
+            f"⚠️ Selected databases are very small ({total_size_tb * 1024 * 1024:.1f} MB). "
+            "Costs may appear as $0.00. This is expected for small datasets."
+        )
 
     if selected_dbs:
         with st.expander("Selected databases detail"):
@@ -298,14 +326,14 @@ def main():
             [
                 {
                     "Component": "Data Transfer",
-                    "Credits": f"{transfer_cost:.2f}",
-                    "USD": f"${transfer_cost * price_per_credit:.2f}",
+                    "Credits": f"{transfer_cost:.4f}",
+                    "USD": f"${transfer_cost * price_per_credit:.4f}",
                     "Estimate": transfer_est
                 },
                 {
                     "Component": "Replication Compute",
-                    "Credits": f"{compute_cost:.2f}",
-                    "USD": f"${compute_cost * price_per_credit:.2f}",
+                    "Credits": f"{compute_cost:.4f}",
+                    "USD": f"${compute_cost * price_per_credit:.4f}",
                     "Estimate": compute_est
                 },
             ]
@@ -317,24 +345,24 @@ def main():
             [
                 {
                     "Component": "Transfer (30d)",
-                    "Credits": f"{projections['monthly_transfer']:.2f}",
-                    "USD": f"${projections['monthly_transfer'] * price_per_credit:.2f}"
+                    "Credits": f"{projections['monthly_transfer']:.4f}",
+                    "USD": f"${projections['monthly_transfer'] * price_per_credit:.4f}"
                 },
                 {
                     "Component": "Compute (30d)",
-                    "Credits": f"{projections['monthly_compute']:.2f}",
-                    "USD": f"${projections['monthly_compute'] * price_per_credit:.2f}"
+                    "Credits": f"{projections['monthly_compute']:.4f}",
+                    "USD": f"${projections['monthly_compute'] * price_per_credit:.4f}"
                 },
                 {
                     "Component": "Storage",
-                    "Credits": f"{storage_cost:.2f}",
-                    "USD": f"${storage_cost * price_per_credit:.2f}",
+                    "Credits": f"{storage_cost:.4f}",
+                    "USD": f"${storage_cost * price_per_credit:.4f}",
                     "Estimate": storage_est
                 },
                 {
                     "Component": "Serverless Maint",
-                    "Credits": f"{serverless_cost:.2f}",
-                    "USD": f"${serverless_cost * price_per_credit:.2f}",
+                    "Credits": f"{serverless_cost:.4f}",
+                    "USD": f"${serverless_cost * price_per_credit:.4f}",
                     "Estimate": serverless_est
                 },
             ]
