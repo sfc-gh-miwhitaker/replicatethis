@@ -26,19 +26,16 @@ The `deploy_all.sql` script automatically:
 - ✅ Switches to SYSADMIN role
 - ✅ Creates warehouse: `SFE_REPLICATION_CALC_WH`
 - ✅ Creates schema: `SNOWFLAKE_EXAMPLE.REPLICATION_CALC`
-- ✅ Creates stage: `PRICE_STAGE`
 - ✅ **Creates Streamlit app: `REPLICATION_CALCULATOR`** (auto-deployed from Git)
-- ✅ Creates tables: `PRICING_RAW`, `PRICING_CURRENT`, `PRICING_HISTORY`, `PRICING_FALLBACK`
+- ✅ Creates table: `PRICING_CURRENT`
 - ✅ Creates view: `DB_METADATA`
-- ✅ Creates procedure: `REFRESH_PRICING_FROM_PDF()`
-- ✅ Creates task: `PRICING_REFRESH_TASK` (daily at 7am UTC)
-- ✅ Calls initial pricing refresh
+- ✅ Seeds pricing data (48 baseline rates for AWS/Azure/GCP)
 
 #### Phase 3: Access Grants (SYSADMIN)
 - ✅ Grants USAGE on warehouse to PUBLIC
 - ✅ Grants SELECT on tables/views to PUBLIC
 - ✅ Grants USAGE on Streamlit app to PUBLIC
-- ✅ Grants OPERATE on task to SYSADMIN
+- ✅ Grants INSERT/UPDATE/DELETE on PRICING_CURRENT to SYSADMIN
 
 ### Verify Deployment
 
@@ -47,22 +44,26 @@ After "Run All" completes, you should see:
 ```
 ✅ Deployment Complete!
 Open Snowsight → Streamlit → REPLICATION_CALCULATOR
+48 pricing rates loaded
 ```
 
 **Note:** The script grants ACCOUNT_USAGE access to SYSADMIN (already has it by default). Database sizes will populate from `SNOWFLAKE.ACCOUNT_USAGE.DATABASE_STORAGE_USAGE_HISTORY` (1-2 day latency for new databases).
 
+Pricing rates are pre-loaded baseline values. Administrators can update them via the Streamlit app's "Admin: Manage Pricing" page.
+
 ### Next Steps
 
 1. Navigate to Snowsight → Streamlit → `REPLICATION_CALCULATOR`
-2. See `docs/03-USAGE.md` for how to use the calculator
+2. See `docs/03-USAGE.md` for how to use the calculator and admin features
 
-## Manual Pricing Refresh (Optional)
+## Updating Pricing (Optional)
 
-The script automatically refreshes pricing on deployment. To manually refresh:
+Administrators (SYSADMIN or ACCOUNTADMIN) can update pricing rates through the Streamlit app:
 
-```sql
-CALL SNOWFLAKE_EXAMPLE.REPLICATION_CALC.REFRESH_PRICING_FROM_PDF();
-```
+1. Navigate to Snowsight → Streamlit → `REPLICATION_CALCULATOR`
+2. Use sidebar to switch to "Admin: Manage Pricing"
+3. Edit rates in the data editor
+4. Click "Save Changes"
 
 ## Troubleshooting
 

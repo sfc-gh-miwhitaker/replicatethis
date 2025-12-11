@@ -21,6 +21,7 @@ Follow these in order:
 2. `docs/02-DEPLOYMENT.md` — Run `deploy_all.sql` in Snowsight (5 min)
 3. `docs/03-USAGE.md` — Use the Streamlit app (5 min)
 4. `docs/04-TROUBLESHOOTING.md` — Common fixes (reference as needed)
+5. `docs/05-ADMIN.md` — Pricing management (admins only)
 
 **Total setup time: ~10 minutes**
 
@@ -34,7 +35,8 @@ Follow these in order:
 
 ## What This Delivers
 - Snowflake-only Streamlit app for replication/DR cost estimation using Business Critical pricing.
-- Scheduled pricing refresh task that ingests the public Credit Consumption PDF into normalized rates.
+- Pre-loaded pricing rates for AWS, Azure, and GCP regions (48 pricing entries).
+- Admin interface for updating pricing rates (SYSADMIN/ACCOUNTADMIN only).
 - Database metadata view for selecting databases and sizing transfer.
 - Architecture diagrams in `diagrams/` (Mermaid source of truth).
 
@@ -48,7 +50,7 @@ Follow these in order:
 - Regional pricing variations
 - Snowflake contract terms and discounts
 
-Always monitor actual consumption using Snowflake's `ACCOUNT_USAGE` views and consult with your account team for production planning.
+Pricing rates are hardcoded baseline values and should be updated by administrators to reflect current Snowflake pricing. Always monitor actual consumption using Snowflake's `ACCOUNT_USAGE` views and consult with your account team for production planning.
 
 ### Pre-Commit Hooks Setup
 This project uses pre-commit hooks for code quality. To enable:
@@ -70,4 +72,4 @@ Hooks include:
 - **Security**: SYSADMIN owns objects, PUBLIC granted read access
 - **Features**: Business Critical edition features/pricing
 - **Expiration**: Enforced in `deploy_all.sql` and auto-archive workflow (`.github/workflows/expire-demo.yml`)
-- **Pricing**: Automatically refreshed daily from Snowflake's public PDF
+- **Pricing**: Pre-loaded baseline rates, updatable via admin interface

@@ -1,6 +1,7 @@
 import streamlit as st
 from snowflake.snowpark.context import get_active_session
 from snowflake.snowpark.exceptions import SnowparkSQLException
+import pandas as pd
 
 session = get_active_session()
 
@@ -11,8 +12,8 @@ def load_pricing():
         rows = df.collect()
         if not rows:
             return [], None
-        refreshed_at = max(r.REFRESHED_AT for r in rows)
-        return rows, refreshed_at
+        updated_at = max(r.UPDATED_AT for r in rows) if hasattr(rows[0], 'UPDATED_AT') else None
+        return rows, updated_at
     except SnowparkSQLException as e:
         st.error(f"Failed to load pricing data: {str(e)}. Ensure deploy_all.sql was executed successfully.")
         return [], None
@@ -33,31 +34,16 @@ def load_db_metadata():
         return []
 
 
-def run_pricing_refresh():
-    try:
-        return session.sql(
-            "CALL SNOWFLAKE_EXAMPLE.REPLICATION_CALC.REFRESH_PRICING_FROM_PDF()"
-        ).collect()
-    except SnowparkSQLException as e:
-        st.error(f"Pricing refresh failed: {str(e)}. Check network access to Snowflake PDF URL.")
-        return None
-    except Exception as e:
-        st.error(f"Unexpected error during pricing refresh: {str(e)}")
-        return None
-
-
 def get_cloud_and_region():
     try:
-        # Get region name (format: cloud.region_name)
         region_result = session.sql("SELECT CURRENT_REGION()").collect()
         region_full = region_result[0][0] if region_result else "AWS_US_EAST_1"
 
-        # Parse cloud from region string (e.g., "AWS_US_EAST_1" -> "AWS", "us-east-1")
         if region_full:
             parts = region_full.split("_", 1)
             if len(parts) >= 2:
-                cloud = parts[0]  # AWS, AZURE, or GCP
-                region = parts[1].lower().replace("_", "-")  # us-east-1
+                cloud = parts[0]
+                region = parts[1].lower().replace("_", "-")
             else:
                 cloud = "AWS"
                 region = region_full.lower()
@@ -71,8 +57,15 @@ def get_cloud_and_region():
         return "AWS", "us-east-1"
 
 
+def get_current_role():
+    try:
+        result = session.sql("SELECT CURRENT_ROLE()").collect()
+        return result[0][0] if result else None
+    except Exception:
+        return None
+
+
 def cost_lookup(pricing_rows, service_type, cloud, region):
-    # First try exact match
     for r in pricing_rows:
         if (
             r.SERVICE_TYPE == service_type
@@ -80,18 +73,16 @@ def cost_lookup(pricing_rows, service_type, cloud, region):
             and r.REGION.upper() == region.upper()
         ):
             rate = float(r.RATE) if r.RATE is not None else None
-            return rate, r.UNIT, r.IS_ESTIMATE
+            return rate, r.UNIT, False
 
-    # Fallback: find any rate for same cloud and service type
     for r in pricing_rows:
         if (
             r.SERVICE_TYPE == service_type
             and r.CLOUD.upper() == cloud.upper()
         ):
             rate = float(r.RATE) if r.RATE is not None else None
-            return rate, r.UNIT, True  # Mark as estimate since region didn't match
+            return rate, r.UNIT, True
 
-    # Last resort: find any rate for service type
     for r in pricing_rows:
         if r.SERVICE_TYPE == service_type:
             rate = float(r.RATE) if r.RATE is not None else None
@@ -189,7 +180,82 @@ def generate_enhanced_csv(assumptions, costs, projections, price_per_credit):
     return "\n".join(csv_lines)
 
 
+def admin_panel():
+    st.title("Pricing Administration")
+    st.info("**Admin access required:** Only SYSADMIN and ACCOUNTADMIN can modify pricing rates.")
+
+    current_role = get_current_role()
+    st.write(f"Current role: **{current_role}**")
+
+    if current_role not in ['SYSADMIN', 'ACCOUNTADMIN']:
+        st.warning("You must use SYSADMIN or ACCOUNTADMIN role to modify pricing.")
+        return
+
+    pricing_rows, updated_at = load_pricing()
+
+    if updated_at:
+        st.success(f"Pricing last updated: {updated_at}")
+
+    df = pd.DataFrame([{
+        'SERVICE_TYPE': r.SERVICE_TYPE,
+        'CLOUD': r.CLOUD,
+        'REGION': r.REGION,
+        'UNIT': r.UNIT,
+        'RATE': float(r.RATE),
+        'CURRENCY': r.CURRENCY
+    } for r in pricing_rows])
+
+    st.subheader("Current Pricing Rates")
+    edited_df = st.data_editor(
+        df,
+        num_rows="dynamic",
+        use_container_width=True,
+        column_config={
+            "RATE": st.column_config.NumberColumn("Rate", min_value=0, format="%.4f"),
+        }
+    )
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        if st.button("Save Changes", type="primary"):
+            try:
+                session.sql("TRUNCATE TABLE SNOWFLAKE_EXAMPLE.REPLICATION_CALC.PRICING_CURRENT").collect()
+
+                for _, row in edited_df.iterrows():
+                    insert_sql = f"""
+                        INSERT INTO SNOWFLAKE_EXAMPLE.REPLICATION_CALC.PRICING_CURRENT
+                        (SERVICE_TYPE, CLOUD, REGION, UNIT, RATE, CURRENCY)
+                        VALUES ('{row['SERVICE_TYPE']}', '{row['CLOUD']}', '{row['REGION']}',
+                                '{row['UNIT']}', {row['RATE']}, '{row['CURRENCY']}')
+                    """
+                    session.sql(insert_sql).collect()
+
+                st.success(f"✅ Pricing updated successfully! {len(edited_df)} rates saved.")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Failed to update pricing: {str(e)}")
+
+    with col2:
+        if st.button("Reset to Defaults"):
+            st.warning("This will reset all pricing to default values. Confirm in SQL worksheet.")
+
+
 def main():
+    st.set_page_config(page_title="Replication Cost Calculator", layout="wide")
+
+    pages = {
+        "Cost Calculator": "calculator",
+        "Admin: Manage Pricing": "admin"
+    }
+
+    st.sidebar.title("Navigation")
+    selected_page = st.sidebar.radio("Go to", list(pages.keys()))
+
+    if pages[selected_page] == "admin":
+        admin_panel()
+        return
+
     st.title("Replication / DR Cost Calculator (Business Critical)")
 
     st.info(
@@ -198,11 +264,8 @@ def main():
         "Always monitor actual consumption via Snowflake's usage views."
     )
 
-    st.caption(
-        "Business Critical pricing; rates sourced from Credit Consumption Table (estimates when parsing unavailable)."
-    )
+    st.caption("Business Critical pricing; rates managed by admins via Pricing Administration page.")
 
-    # Price per credit input for discount/contract pricing
     st.sidebar.header("💰 Pricing Configuration")
     price_per_credit = st.sidebar.number_input(
         "Price per credit (USD)",
@@ -214,19 +277,14 @@ def main():
     )
     st.sidebar.caption(f"All USD costs calculated at ${price_per_credit:.2f}/credit")
 
-    pricing_rows, refreshed_at = load_pricing()
+    pricing_rows, updated_at = load_pricing()
 
-    if refreshed_at:
-        st.success(f"Pricing refreshed at {refreshed_at}")
-    else:
-        st.warning("No pricing data found. Run a manual refresh.")
+    if not pricing_rows:
+        st.error("No pricing data found. Please contact an administrator to configure pricing rates.")
+        return
 
-    if st.button("Refresh pricing now"):
-        with st.spinner("Refreshing pricing from PDF..."):
-            res = run_pricing_refresh()
-        if res:
-            st.info(res[0][0])
-            pricing_rows, refreshed_at = load_pricing()
+    if updated_at:
+        st.caption(f"📊 Pricing data last updated: {updated_at}")
 
     db_rows = load_db_metadata()
     db_options = {r.DATABASE_NAME: r for r in db_rows}
@@ -238,7 +296,6 @@ def main():
 
     source_cloud, source_region = get_cloud_and_region()
 
-    # Destination selection: Cloud first, then region
     st.subheader("Destination Selection")
 
     available_clouds = sorted({r.CLOUD for r in pricing_rows})
@@ -249,7 +306,6 @@ def main():
         help="Select the destination cloud provider for replication"
     )
 
-    # Filter regions by selected cloud
     cloud_regions = sorted({r.REGION for r in pricing_rows if r.CLOUD == dest_cloud})
     dest_region = st.selectbox(
         "Destination region",
@@ -258,14 +314,12 @@ def main():
         help=f"Select the destination region in {dest_cloud}"
     ) if cloud_regions else None
 
-    # Replication parameters
     st.subheader("Replication Parameters")
     daily_change_pct = st.slider("Daily change rate (%)", 0.0, 20.0, 5.0, 0.5,
                                    help="Percentage of total data that changes each day")
     refresh_per_day = st.slider("Refreshes per day", 0.0, 24.0, 1.0, 0.5,
                                   help="Number of replication refresh operations per day")
 
-    # Convert Decimal to float for calculations
     total_size_tb = float(sum(db_options[n].SIZE_TB for n in selected_dbs)) if selected_dbs else 0.0
     change_tb_per_refresh = total_size_tb * (daily_change_pct / 100.0)
     daily_transfer_tb = change_tb_per_refresh * refresh_per_day
@@ -297,12 +351,11 @@ def main():
         st.write("**Destination:**")
         st.write(f"Cloud: {dest_cloud or '-'}")
         st.write(f"Region: {dest_region or '-'}")
-    # Show calculation inputs prominently
+
     st.write(f"**Selected DB size:** {total_size_tb:.6f} TB ({total_size_tb * 1024:.3f} GB)")
     st.write(f"**Daily change:** {daily_change_pct}% = {daily_transfer_tb:.6f} TB/day")
     st.write(f"**Refreshes/day:** {refresh_per_day}")
 
-    # Warn if sizes are very small
     if total_size_tb > 0 and total_size_tb < 0.01:
         st.warning(
             f"⚠️ Selected databases are very small ({total_size_tb * 1024 * 1024:.1f} MB). "
@@ -368,7 +421,6 @@ def main():
             ]
         )
 
-    # Summary metrics with both credits and USD
     col_m1, col_m2 = st.columns(2)
     with col_m1:
         st.metric("Monthly Total", f"{projections['monthly_total']:.2f} credits")
@@ -390,7 +442,7 @@ def main():
     st.subheader("Details")
     st.write("Data transfer and compute costs shown as daily values based on change rate.")
     st.write("Storage and serverless maintenance are monthly costs based on total database size.")
-    st.write("Values marked as estimates rely on fallback rates when PDF parsing is unavailable.")
+    st.write("Values marked as estimates rely on fallback rates when exact region match is unavailable.")
 
     assumptions = {
         'source_cloud': source_cloud,

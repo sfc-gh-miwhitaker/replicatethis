@@ -34,7 +34,7 @@ SELECT
 -- CONTEXT SETTING (MANDATORY)
 -- ============================================================================
 -- Bootstrap script: Creates project warehouse, so uses COMPUTE_WH initially.
--- ACCOUNTADMIN required for: API Integration, Network Rule, External Access.
+-- ACCOUNTADMIN required for: API Integration only (no external access needed)
 -- Drops to SYSADMIN immediately after account-level objects are created.
 -- ============================================================================
 USE ROLE ACCOUNTADMIN;
@@ -43,12 +43,10 @@ USE WAREHOUSE COMPUTE_WH;
 /*****************************************************************************
  * SECTION 1: Database & Account-Level Objects (ACCOUNTADMIN required)
  *****************************************************************************/
--- Create database FIRST (required for Network Rule which needs DB context)
 CREATE DATABASE IF NOT EXISTS SNOWFLAKE_EXAMPLE;
 USE DATABASE SNOWFLAKE_EXAMPLE;
 
-CREATE SCHEMA IF NOT EXISTS SNOWFLAKE_EXAMPLE.TOOLS
-    COMMENT = 'DEMO TOOLS (Expires: 2026-01-07)';
+CREATE SCHEMA IF NOT EXISTS TOOLS COMMENT = 'DEMO TOOLS (Expires: 2026-01-07)';
 
 -- API Integration (account-level, no DB context needed)
 CREATE OR REPLACE API INTEGRATION SFE_GIT_API_INTEGRATION
@@ -58,23 +56,6 @@ CREATE OR REPLACE API INTEGRATION SFE_GIT_API_INTEGRATION
     )
     ENABLED = TRUE
     COMMENT = 'DEMO: Replication cost calc (Expires: 2026-01-07)';
-
--- Network rule to allow HTTPS egress to Snowflake's pricing PDF
--- (Requires database context - using SNOWFLAKE_EXAMPLE.TOOLS schema)
-CREATE OR REPLACE NETWORK RULE SNOWFLAKE_EXAMPLE.TOOLS.SFE_SNOWFLAKE_PDF_NETWORK_RULE
-    MODE = EGRESS
-    TYPE = HOST_PORT
-    VALUE_LIST = ('www.snowflake.com:443')
-    COMMENT = 'DEMO: Allow PDF download from Snowflake legal (Expires: 2026-01-07)';
-
--- External access integration for stored procedures
-CREATE OR REPLACE EXTERNAL ACCESS INTEGRATION SFE_SNOWFLAKE_PDF_ACCESS
-    ALLOWED_NETWORK_RULES = (SNOWFLAKE_EXAMPLE.TOOLS.SFE_SNOWFLAKE_PDF_NETWORK_RULE)
-    ENABLED = TRUE
-    COMMENT = 'DEMO: External access for pricing PDF (Expires: 2026-01-07)';
-
--- Grant SYSADMIN usage on the external access integration
-GRANT USAGE ON INTEGRATION SFE_SNOWFLAKE_PDF_ACCESS TO ROLE SYSADMIN;
 
 CREATE OR REPLACE GIT REPOSITORY SNOWFLAKE_EXAMPLE.TOOLS.REPLICATE_THIS_REPO
     API_INTEGRATION = SFE_GIT_API_INTEGRATION
@@ -109,11 +90,8 @@ USE SCHEMA SNOWFLAKE_EXAMPLE.REPLICATION_CALC;
 USE WAREHOUSE SFE_REPLICATION_CALC_WH;
 
 /*****************************************************************************
- * SECTION 3: Stages & Streamlit
+ * SECTION 3: Streamlit
  *****************************************************************************/
-CREATE OR REPLACE STAGE PRICE_STAGE
-    COMMENT = 'Pricing ingest assets (Expires: 2026-01-07)';
-
 -- Create Streamlit app directly from Git repository
 CREATE OR REPLACE STREAMLIT REPLICATION_CALCULATOR
     ROOT_LOCATION = '@SNOWFLAKE_EXAMPLE.TOOLS.REPLICATE_THIS_REPO/branches/main/streamlit'
@@ -124,12 +102,6 @@ CREATE OR REPLACE STREAMLIT REPLICATION_CALCULATOR
 /*****************************************************************************
  * SECTION 4: Tables and Views
  *****************************************************************************/
-CREATE OR REPLACE TABLE PRICING_RAW (
-    SOURCE_URL STRING,
-    CONTENT_BASE64 STRING,
-    INGESTED_AT TIMESTAMP_TZ
-) COMMENT = 'Raw PDF content for audit (Expires: 2026-01-07)';
-
 CREATE OR REPLACE TABLE PRICING_CURRENT (
     SERVICE_TYPE STRING,
     CLOUD STRING,
@@ -137,9 +109,9 @@ CREATE OR REPLACE TABLE PRICING_CURRENT (
     UNIT STRING,
     RATE NUMBER(10,4),
     CURRENCY STRING,
-    IS_ESTIMATE BOOLEAN,
-    REFRESHED_AT TIMESTAMP_TZ
-) COMMENT = 'Normalized pricing rows (BC) (Expires: 2026-01-07)';
+    UPDATED_AT TIMESTAMP_TZ DEFAULT CURRENT_TIMESTAMP(),
+    UPDATED_BY STRING DEFAULT CURRENT_USER()
+) COMMENT = 'Replication pricing rates (BC) - Managed by admins (Expires: 2026-01-07)';
 
 CREATE OR REPLACE VIEW DB_METADATA AS
 WITH ALL_DBS AS (
@@ -165,306 +137,64 @@ LEFT JOIN DB_STORAGE s ON d.DATABASE_NAME = s.DATABASE_NAME
 ORDER BY d.DATABASE_NAME;
 
 /*****************************************************************************
- * SECTION 5: Pricing Refresh Procedure (Snowpark + AI_PARSE_DOCUMENT)
+ * SECTION 5: Seed Pricing Data
  *****************************************************************************/
-CREATE OR REPLACE PROCEDURE REFRESH_PRICING_FROM_PDF()
-RETURNS STRING
-LANGUAGE PYTHON
-RUNTIME_VERSION = '3.10'
-PACKAGES = ('requests', 'snowflake-snowpark-python')
-HANDLER = 'run'
-COMMENT = 'Fetch PDF; parse with AI; populate pricing (Expires: 2026-01-07)'
-EXTERNAL_ACCESS_INTEGRATIONS = (SFE_SNOWFLAKE_PDF_ACCESS)
-EXECUTE AS OWNER
-AS
-$$
-import datetime
-import io
-import json
-import re
-import requests
-from snowflake.snowpark import Session
-
-PDF_URL = "https://www.snowflake.com/legal-files/CreditConsumptionTable.pdf"
-STAGE_PATH = "@SNOWFLAKE_EXAMPLE.REPLICATION_CALC.PRICE_STAGE"
-PDF_FILENAME = "CreditConsumptionTable.pdf"
-
-# Fallback rates used when PDF parsing fails or for regions not in PDF
-FALLBACK_RATES = [
-    # AWS Regions
-    {"service_type": "DATA_TRANSFER", "cloud": "AWS", "region": "us-east-1",
-     "unit": "TB", "rate": 2.50, "currency": "CREDITS"},
-    {"service_type": "REPLICATION_COMPUTE", "cloud": "AWS", "region": "us-east-1",
-     "unit": "TB", "rate": 1.00, "currency": "CREDITS"},
-    {"service_type": "STORAGE_TB_MONTH", "cloud": "AWS", "region": "us-east-1",
-     "unit": "TB_MONTH", "rate": 0.25, "currency": "CREDITS"},
-    {"service_type": "SERVERLESS_MAINT", "cloud": "AWS", "region": "us-east-1",
-     "unit": "TB_MONTH", "rate": 0.10, "currency": "CREDITS"},
-    {"service_type": "DATA_TRANSFER", "cloud": "AWS", "region": "us-west-2",
-     "unit": "TB", "rate": 2.50, "currency": "CREDITS"},
-    {"service_type": "REPLICATION_COMPUTE", "cloud": "AWS", "region": "us-west-2",
-     "unit": "TB", "rate": 1.00, "currency": "CREDITS"},
-    {"service_type": "STORAGE_TB_MONTH", "cloud": "AWS", "region": "us-west-2",
-     "unit": "TB_MONTH", "rate": 0.25, "currency": "CREDITS"},
-    {"service_type": "SERVERLESS_MAINT", "cloud": "AWS", "region": "us-west-2",
-     "unit": "TB_MONTH", "rate": 0.10, "currency": "CREDITS"},
-    {"service_type": "DATA_TRANSFER", "cloud": "AWS", "region": "eu-west-1",
-     "unit": "TB", "rate": 2.50, "currency": "CREDITS"},
-    {"service_type": "REPLICATION_COMPUTE", "cloud": "AWS", "region": "eu-west-1",
-     "unit": "TB", "rate": 1.00, "currency": "CREDITS"},
-    {"service_type": "STORAGE_TB_MONTH", "cloud": "AWS", "region": "eu-west-1",
-     "unit": "TB_MONTH", "rate": 0.25, "currency": "CREDITS"},
-    {"service_type": "SERVERLESS_MAINT", "cloud": "AWS", "region": "eu-west-1",
-     "unit": "TB_MONTH", "rate": 0.10, "currency": "CREDITS"},
-    {"service_type": "DATA_TRANSFER", "cloud": "AWS", "region": "ap-southeast-1",
-     "unit": "TB", "rate": 2.50, "currency": "CREDITS"},
-    {"service_type": "REPLICATION_COMPUTE", "cloud": "AWS", "region":
-        "ap-southeast-1", "unit": "TB", "rate": 1.00, "currency": "CREDITS"},
-    {"service_type": "STORAGE_TB_MONTH", "cloud": "AWS", "region":
-        "ap-southeast-1", "unit": "TB_MONTH", "rate": 0.25, "currency": "CREDITS"},
-    {"service_type": "SERVERLESS_MAINT", "cloud": "AWS", "region": "ap-southeast-1",
-     "unit": "TB_MONTH", "rate": 0.10, "currency": "CREDITS"},
-    # Azure Regions
-    {"service_type": "DATA_TRANSFER", "cloud": "AZURE", "region": "eastus2",
-     "unit": "TB", "rate": 2.70, "currency": "CREDITS"},
-    {"service_type": "REPLICATION_COMPUTE", "cloud": "AZURE", "region": "eastus2",
-     "unit": "TB", "rate": 1.10, "currency": "CREDITS"},
-    {"service_type": "STORAGE_TB_MONTH", "cloud": "AZURE", "region": "eastus2",
-     "unit": "TB_MONTH", "rate": 0.27, "currency": "CREDITS"},
-    {"service_type": "SERVERLESS_MAINT", "cloud": "AZURE", "region": "eastus2",
-     "unit": "TB_MONTH", "rate": 0.12, "currency": "CREDITS"},
-    {"service_type": "DATA_TRANSFER", "cloud": "AZURE", "region": "westus2",
-     "unit": "TB", "rate": 2.70, "currency": "CREDITS"},
-    {"service_type": "REPLICATION_COMPUTE", "cloud": "AZURE", "region": "westus2",
-     "unit": "TB", "rate": 1.10, "currency": "CREDITS"},
-    {"service_type": "STORAGE_TB_MONTH", "cloud": "AZURE", "region": "westus2",
-     "unit": "TB_MONTH", "rate": 0.27, "currency": "CREDITS"},
-    {"service_type": "SERVERLESS_MAINT", "cloud": "AZURE", "region": "westus2",
-     "unit": "TB_MONTH", "rate": 0.12, "currency": "CREDITS"},
-    {"service_type": "DATA_TRANSFER", "cloud": "AZURE", "region": "westeurope",
-     "unit": "TB", "rate": 2.70, "currency": "CREDITS"},
-    {"service_type": "REPLICATION_COMPUTE", "cloud": "AZURE", "region": "westeurope",
-     "unit": "TB", "rate": 1.10, "currency": "CREDITS"},
-    {"service_type": "STORAGE_TB_MONTH", "cloud": "AZURE", "region": "westeurope",
-     "unit": "TB_MONTH", "rate": 0.27, "currency": "CREDITS"},
-    {"service_type": "SERVERLESS_MAINT", "cloud": "AZURE", "region": "westeurope",
-     "unit": "TB_MONTH", "rate": 0.12, "currency": "CREDITS"},
-    {"service_type": "DATA_TRANSFER", "cloud": "AZURE", "region": "southeastasia",
-     "unit": "TB", "rate": 2.70, "currency": "CREDITS"},
-    {"service_type": "REPLICATION_COMPUTE", "cloud": "AZURE", "region":
-        "southeastasia", "unit": "TB", "rate": 1.10, "currency": "CREDITS"},
-    {"service_type": "STORAGE_TB_MONTH", "cloud": "AZURE", "region": "southeastasia",
-     "unit": "TB_MONTH", "rate": 0.27, "currency": "CREDITS"},
-    {"service_type": "SERVERLESS_MAINT", "cloud": "AZURE", "region":
-        "southeastasia", "unit": "TB_MONTH", "rate": 0.12, "currency": "CREDITS"},
-    # GCP Regions
-    {"service_type": "DATA_TRANSFER", "cloud": "GCP", "region": "us-central1",
-     "unit": "TB", "rate": 2.60, "currency": "CREDITS"},
-    {"service_type": "REPLICATION_COMPUTE", "cloud": "GCP", "region": "us-central1",
-     "unit": "TB", "rate": 1.05, "currency": "CREDITS"},
-    {"service_type": "STORAGE_TB_MONTH", "cloud": "GCP", "region": "us-central1",
-     "unit": "TB_MONTH", "rate": 0.26, "currency": "CREDITS"},
-    {"service_type": "SERVERLESS_MAINT", "cloud": "GCP", "region": "us-central1",
-     "unit": "TB_MONTH", "rate": 0.11, "currency": "CREDITS"},
-    {"service_type": "DATA_TRANSFER", "cloud": "GCP", "region": "us-west1",
-     "unit": "TB", "rate": 2.60, "currency": "CREDITS"},
-    {"service_type": "REPLICATION_COMPUTE", "cloud": "GCP", "region": "us-west1",
-     "unit": "TB", "rate": 1.05, "currency": "CREDITS"},
-    {"service_type": "STORAGE_TB_MONTH", "cloud": "GCP", "region": "us-west1",
-     "unit": "TB_MONTH", "rate": 0.26, "currency": "CREDITS"},
-    {"service_type": "SERVERLESS_MAINT", "cloud": "GCP", "region": "us-west1",
-     "unit": "TB_MONTH", "rate": 0.11, "currency": "CREDITS"},
-    {"service_type": "DATA_TRANSFER", "cloud": "GCP", "region": "europe-west1",
-     "unit": "TB", "rate": 2.60, "currency": "CREDITS"},
-    {"service_type": "REPLICATION_COMPUTE", "cloud": "GCP", "region": "europe-west1",
-     "unit": "TB", "rate": 1.05, "currency": "CREDITS"},
-    {"service_type": "STORAGE_TB_MONTH", "cloud": "GCP", "region": "europe-west1",
-     "unit": "TB_MONTH", "rate": 0.26, "currency": "CREDITS"},
-    {"service_type": "SERVERLESS_MAINT", "cloud": "GCP", "region": "europe-west1",
-     "unit": "TB_MONTH", "rate": 0.11, "currency": "CREDITS"},
-    {"service_type": "DATA_TRANSFER", "cloud": "GCP", "region": "asia-southeast1",
-     "unit": "TB", "rate": 2.60, "currency": "CREDITS"},
-    {"service_type": "REPLICATION_COMPUTE", "cloud": "GCP", "region":
-        "asia-southeast1", "unit": "TB", "rate": 1.05, "currency": "CREDITS"},
-    {"service_type": "STORAGE_TB_MONTH", "cloud": "GCP", "region": "asia-southeast1",
-     "unit": "TB_MONTH", "rate": 0.26, "currency": "CREDITS"},
-    {"service_type": "SERVERLESS_MAINT", "cloud": "GCP", "region": "asia-southeast1",
-     "unit": "TB_MONTH", "rate": 0.11, "currency": "CREDITS"},
-]
-
-
-def download_pdf() -> bytes:
-    """Download PDF from Snowflake's website using external access."""
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-    }
-    resp = requests.get(PDF_URL, headers=headers, timeout=60)
-    resp.raise_for_status()
-    return resp.content
-
-
-def stage_pdf(session: Session, pdf_bytes: bytes) -> str:
-    """Upload PDF to internal stage using put_stream."""
-    file_stream = io.BytesIO(pdf_bytes)
-    stage_file = f"{STAGE_PATH}/{PDF_FILENAME}"
-    session.file.put_stream(file_stream, stage_file, overwrite=True)
-    return stage_file
-
-
-def parse_pdf_with_cortex(session: Session) -> dict:
-    """Use AI_PARSE_DOCUMENT to extract content from staged PDF."""
-    query = f"""
-    SELECT SNOWFLAKE.CORTEX.PARSE_DOCUMENT(
-        '{STAGE_PATH}',
-        '{PDF_FILENAME}',
-        {{'mode': 'LAYOUT'}}
-    ) AS parsed_content
-    """
-    result = session.sql(query).collect()
-    if result and result[0].PARSED_CONTENT:
-        content = result[0].PARSED_CONTENT
-        if isinstance(content, str):
-            return json.loads(content)
-        return dict(content) if content else {}
-    return {}
-
-
-def extract_pricing_from_parsed(parsed_doc: dict) -> list:
-    """
-    Extract replication/transfer pricing from parsed PDF content.
-    Returns list of pricing dicts or empty list if extraction fails.
-    """
-    extracted = []
-    try:
-        content = parsed_doc.get("content", "")
-        if not content:
-            return []
-
-        # Look for data transfer rates in the parsed content
-        # The Credit Consumption Table has specific sections for services
-        # Pattern: look for numeric values near replication/transfer keywords
-
-        lines = content.split("\n") if isinstance(content, str) else []
-        for line in lines:
-            lower = line.lower()
-            # Look for replication-related rates
-            if any(kw in lower for kw in ["replication", "data transfer"]):
-                # Try to extract rate values
-                rate_match = re.search(r"(\d+\.?\d*)\s*credits?", lower)
-                if rate_match:
-                    # Found a rate - context needed to know which service
-                    pass
-
-    except Exception:
-        pass
-
-    return extracted
-
-
-def run(session: Session) -> str:
-    now = datetime.datetime.utcnow()
-    pdf_fetched = False
-    pdf_parsed = False
-    parse_status = "not_attempted"
-
-    # Step 1: Download PDF via external access
-    pdf_bytes = None
-    try:
-        pdf_bytes = download_pdf()
-        pdf_fetched = True
-    except Exception as e:
-        parse_status = f"download_failed: {str(e)[:100]}"
-
-    # Step 2: Stage PDF for AI parsing
-    if pdf_bytes:
-        try:
-            stage_pdf(session, pdf_bytes)
-        except Exception as e:
-            parse_status = f"staging_failed: {str(e)[:100]}"
-            pdf_bytes = None
-
-    # Step 3: Parse with AI_PARSE_DOCUMENT
-    parsed_rates = []
-    if pdf_bytes:
-        try:
-            parsed_doc = parse_pdf_with_cortex(session)
-            if parsed_doc:
-                parsed_rates = extract_pricing_from_parsed(parsed_doc)
-                pdf_parsed = len(parsed_rates) > 0
-                if pdf_parsed:
-                    parse_status = f"parsed_{len(parsed_rates)}_rates"
-                else:
-                    parse_status = "parsed_no_rates_extracted"
-        except Exception as e:
-            parse_status = f"parse_failed: {str(e)[:100]}"
-
-    # Step 4: Record raw PDF fetch status
-    session.sql("TRUNCATE TABLE PRICING_RAW").collect()
-    raw_data = [{
-        "SOURCE_URL": PDF_URL,
-        "CONTENT_BASE64": "PDF_STAGED" if pdf_fetched else "UNAVAILABLE",
-        "INGESTED_AT": now,
-    }]
-    session.create_dataframe(raw_data).write.mode("append").save_as_table(
-        "PRICING_RAW"
-    )
-
-    # Step 5: Load pricing (parsed rates or fallback)
-    session.sql("TRUNCATE TABLE PRICING_CURRENT").collect()
-    rows = []
-
-    if parsed_rates:
-        # Use AI-extracted rates (IS_ESTIMATE = False)
-        for rate_row in parsed_rates:
-            rows.append({
-                "SERVICE_TYPE": rate_row["service_type"],
-                "CLOUD": rate_row["cloud"],
-                "REGION": rate_row["region"],
-                "UNIT": rate_row["unit"],
-                "RATE": rate_row["rate"],
-                "CURRENCY": rate_row["currency"],
-                "IS_ESTIMATE": False,
-                "REFRESHED_AT": now,
-            })
-    else:
-        # Use fallback rates (IS_ESTIMATE = True)
-        for rate_row in FALLBACK_RATES:
-            rows.append({
-                "SERVICE_TYPE": rate_row["service_type"],
-                "CLOUD": rate_row["cloud"],
-                "REGION": rate_row["region"],
-                "UNIT": rate_row["unit"],
-                "RATE": rate_row["rate"],
-                "CURRENCY": rate_row["currency"],
-                "IS_ESTIMATE": True,
-                "REFRESHED_AT": now,
-            })
-
-    session.create_dataframe(rows).write.mode("append").save_as_table(
-        "PRICING_CURRENT"
-    )
-
-    return (
-        f"Pricing refreshed at {now.isoformat()}Z | "
-        f"PDF_fetched={pdf_fetched} | PDF_parsed={pdf_parsed} | "
-        f"Status={parse_status} | Rates_loaded={len(rows)}"
-    )
-$$;
+-- Insert baseline pricing for AWS, Azure, and GCP regions
+INSERT INTO PRICING_CURRENT (SERVICE_TYPE, CLOUD, REGION, UNIT, RATE, CURRENCY) VALUES
+    -- AWS Regions
+    ('DATA_TRANSFER', 'AWS', 'us-east-1', 'TB', 2.50, 'CREDITS'),
+    ('REPLICATION_COMPUTE', 'AWS', 'us-east-1', 'TB', 1.00, 'CREDITS'),
+    ('STORAGE_TB_MONTH', 'AWS', 'us-east-1', 'TB_MONTH', 0.25, 'CREDITS'),
+    ('SERVERLESS_MAINT', 'AWS', 'us-east-1', 'TB_MONTH', 0.10, 'CREDITS'),
+    ('DATA_TRANSFER', 'AWS', 'us-west-2', 'TB', 2.50, 'CREDITS'),
+    ('REPLICATION_COMPUTE', 'AWS', 'us-west-2', 'TB', 1.00, 'CREDITS'),
+    ('STORAGE_TB_MONTH', 'AWS', 'us-west-2', 'TB_MONTH', 0.25, 'CREDITS'),
+    ('SERVERLESS_MAINT', 'AWS', 'us-west-2', 'TB_MONTH', 0.10, 'CREDITS'),
+    ('DATA_TRANSFER', 'AWS', 'eu-west-1', 'TB', 2.50, 'CREDITS'),
+    ('REPLICATION_COMPUTE', 'AWS', 'eu-west-1', 'TB', 1.00, 'CREDITS'),
+    ('STORAGE_TB_MONTH', 'AWS', 'eu-west-1', 'TB_MONTH', 0.25, 'CREDITS'),
+    ('SERVERLESS_MAINT', 'AWS', 'eu-west-1', 'TB_MONTH', 0.10, 'CREDITS'),
+    ('DATA_TRANSFER', 'AWS', 'ap-southeast-1', 'TB', 2.50, 'CREDITS'),
+    ('REPLICATION_COMPUTE', 'AWS', 'ap-southeast-1', 'TB', 1.00, 'CREDITS'),
+    ('STORAGE_TB_MONTH', 'AWS', 'ap-southeast-1', 'TB_MONTH', 0.25, 'CREDITS'),
+    ('SERVERLESS_MAINT', 'AWS', 'ap-southeast-1', 'TB_MONTH', 0.10, 'CREDITS'),
+    -- Azure Regions
+    ('DATA_TRANSFER', 'AZURE', 'eastus2', 'TB', 2.70, 'CREDITS'),
+    ('REPLICATION_COMPUTE', 'AZURE', 'eastus2', 'TB', 1.10, 'CREDITS'),
+    ('STORAGE_TB_MONTH', 'AZURE', 'eastus2', 'TB_MONTH', 0.27, 'CREDITS'),
+    ('SERVERLESS_MAINT', 'AZURE', 'eastus2', 'TB_MONTH', 0.12, 'CREDITS'),
+    ('DATA_TRANSFER', 'AZURE', 'westus2', 'TB', 2.70, 'CREDITS'),
+    ('REPLICATION_COMPUTE', 'AZURE', 'westus2', 'TB', 1.10, 'CREDITS'),
+    ('STORAGE_TB_MONTH', 'AZURE', 'westus2', 'TB_MONTH', 0.27, 'CREDITS'),
+    ('SERVERLESS_MAINT', 'AZURE', 'westus2', 'TB_MONTH', 0.12, 'CREDITS'),
+    ('DATA_TRANSFER', 'AZURE', 'westeurope', 'TB', 2.70, 'CREDITS'),
+    ('REPLICATION_COMPUTE', 'AZURE', 'westeurope', 'TB', 1.10, 'CREDITS'),
+    ('STORAGE_TB_MONTH', 'AZURE', 'westeurope', 'TB_MONTH', 0.27, 'CREDITS'),
+    ('SERVERLESS_MAINT', 'AZURE', 'westeurope', 'TB_MONTH', 0.12, 'CREDITS'),
+    ('DATA_TRANSFER', 'AZURE', 'southeastasia', 'TB', 2.70, 'CREDITS'),
+    ('REPLICATION_COMPUTE', 'AZURE', 'southeastasia', 'TB', 1.10, 'CREDITS'),
+    ('STORAGE_TB_MONTH', 'AZURE', 'southeastasia', 'TB_MONTH', 0.27, 'CREDITS'),
+    ('SERVERLESS_MAINT', 'AZURE', 'southeastasia', 'TB_MONTH', 0.12, 'CREDITS'),
+    -- GCP Regions
+    ('DATA_TRANSFER', 'GCP', 'us-central1', 'TB', 2.60, 'CREDITS'),
+    ('REPLICATION_COMPUTE', 'GCP', 'us-central1', 'TB', 1.05, 'CREDITS'),
+    ('STORAGE_TB_MONTH', 'GCP', 'us-central1', 'TB_MONTH', 0.26, 'CREDITS'),
+    ('SERVERLESS_MAINT', 'GCP', 'us-central1', 'TB_MONTH', 0.11, 'CREDITS'),
+    ('DATA_TRANSFER', 'GCP', 'us-west1', 'TB', 2.60, 'CREDITS'),
+    ('REPLICATION_COMPUTE', 'GCP', 'us-west1', 'TB', 1.05, 'CREDITS'),
+    ('STORAGE_TB_MONTH', 'GCP', 'us-west1', 'TB_MONTH', 0.26, 'CREDITS'),
+    ('SERVERLESS_MAINT', 'GCP', 'us-west1', 'TB_MONTH', 0.11, 'CREDITS'),
+    ('DATA_TRANSFER', 'GCP', 'europe-west1', 'TB', 2.60, 'CREDITS'),
+    ('REPLICATION_COMPUTE', 'GCP', 'europe-west1', 'TB', 1.05, 'CREDITS'),
+    ('STORAGE_TB_MONTH', 'GCP', 'europe-west1', 'TB_MONTH', 0.26, 'CREDITS'),
+    ('SERVERLESS_MAINT', 'GCP', 'europe-west1', 'TB_MONTH', 0.11, 'CREDITS'),
+    ('DATA_TRANSFER', 'GCP', 'asia-southeast1', 'TB', 2.60, 'CREDITS'),
+    ('REPLICATION_COMPUTE', 'GCP', 'asia-southeast1', 'TB', 1.05, 'CREDITS'),
+    ('STORAGE_TB_MONTH', 'GCP', 'asia-southeast1', 'TB_MONTH', 0.26, 'CREDITS'),
+    ('SERVERLESS_MAINT', 'GCP', 'asia-southeast1', 'TB_MONTH', 0.11, 'CREDITS');
 
 /*****************************************************************************
- * SECTION 6: Scheduled Task
- *****************************************************************************/
-CREATE OR REPLACE TASK PRICING_REFRESH_TASK
-    WAREHOUSE = SFE_REPLICATION_CALC_WH
-    SCHEDULE = 'USING CRON 0 7 * * * UTC'
-    COMMENT = 'Daily pricing refresh (Expires: 2026-01-07)'
-AS
-    CALL REFRESH_PRICING_FROM_PDF();
-
-ALTER TASK PRICING_REFRESH_TASK RESUME;
-
-/*****************************************************************************
- * SECTION 7: Grants (Demo Access)
+ * SECTION 6: Grants (Demo Access)
  *****************************************************************************/
 
 -- Grant ACCOUNT_USAGE access to SYSADMIN (required for DB_METADATA view)
@@ -480,21 +210,18 @@ GRANT SELECT ON ALL TABLES IN SCHEMA SNOWFLAKE_EXAMPLE.REPLICATION_CALC
     TO ROLE PUBLIC;
 GRANT SELECT ON ALL VIEWS IN SCHEMA SNOWFLAKE_EXAMPLE.REPLICATION_CALC
     TO ROLE PUBLIC;
-GRANT READ ON STAGE PRICE_STAGE TO ROLE PUBLIC;
-GRANT USAGE ON PROCEDURE REFRESH_PRICING_FROM_PDF() TO ROLE PUBLIC;
 GRANT USAGE ON STREAMLIT REPLICATION_CALCULATOR TO ROLE PUBLIC;
 
--- SYSADMIN can operate the task
-GRANT OPERATE ON TASK PRICING_REFRESH_TASK TO ROLE SYSADMIN;
+-- Grant SYSADMIN ability to update pricing (for admin UI)
+GRANT INSERT, UPDATE, DELETE ON TABLE PRICING_CURRENT TO ROLE SYSADMIN;
 
 /*****************************************************************************
- * SECTION 8: Seed and Status
+ * SECTION 7: Status
  *****************************************************************************/
-CALL REFRESH_PRICING_FROM_PDF();
-
 SELECT
     '✅ Deployment Complete!' AS STATUS,
     'Open Snowsight → Streamlit → REPLICATION_CALCULATOR' AS NEXT_STEP,
     'All objects created and ready to use' AS MESSAGE,
     'Schema: SNOWFLAKE_EXAMPLE.REPLICATION_CALC' AS SCHEMA_PATH,
-    'Warehouse: SFE_REPLICATION_CALC_WH' AS WAREHOUSE_NAME;
+    'Warehouse: SFE_REPLICATION_CALC_WH' AS WAREHOUSE_NAME,
+    (SELECT COUNT(*) FROM PRICING_CURRENT) || ' pricing rates loaded' AS PRICING_STATUS;

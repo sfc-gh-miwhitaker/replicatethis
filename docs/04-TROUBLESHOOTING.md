@@ -3,41 +3,13 @@
 ## Pricing Issues
 
 ### Pricing table empty
-- Run a manual refresh: `CALL SNOWFLAKE_EXAMPLE.REPLICATION_CALC.REFRESH_PRICING_FROM_PDF();`
-- Confirm network access to `https://www.snowflake.com/legal-files/CreditConsumptionTable.pdf`.
-- Verify task `PRICING_REFRESH_TASK` is started: `ALTER TASK PRICING_REFRESH_TASK RESUME;`
-- Check fallback rates loaded: `SELECT COUNT(*) FROM PRICING_FALLBACK;` (should be 12 rows)
+- Verify deployment completed: `SELECT COUNT(*) FROM SNOWFLAKE_EXAMPLE.REPLICATION_CALC.PRICING_CURRENT;` (should be 48 rows)
+- If empty, re-run the INSERT statements from `deploy_all.sql` starting at "SECTION 5: Seed Pricing Data"
 
-### Network/Firewall Issues
-**Symptom:** PDF fetch fails with timeout or connection errors
-
-**Cause:** Snowflake warehouse cannot reach external URL
-
-**Solutions:**
-1. **Check External Access:**
-   ```sql
-   -- Verify network rule exists (may be required in some environments)
-   SHOW NETWORK RULES;
-   ```
-
-2. **Test connectivity from warehouse:**
-   ```sql
-   -- Run from worksheet using SFE_REPLICATION_CALC_WH
-   USE WAREHOUSE SFE_REPLICATION_CALC_WH;
-   CALL REFRESH_PRICING_FROM_PDF();
-   -- Check error message in PRICING_RAW table
-   SELECT CONTENT_BASE64 FROM PRICING_RAW ORDER BY INGESTED_AT DESC LIMIT 1;
-   ```
-
-3. **Fallback mode:**
-   - If PDF is persistently unavailable, the system uses fallback rates from `PRICING_FALLBACK` table
-   - All costs will be marked as estimates
-   - Update fallback rates manually if needed:
-     ```sql
-     UPDATE PRICING_FALLBACK
-     SET RATE = 2.75
-     WHERE SERVICE_TYPE = 'DATA_TRANSFER' AND CLOUD = 'AWS';
-     ```
+### Need to update pricing rates
+- Use the admin interface: Navigate to Streamlit app → "Admin: Manage Pricing"
+- Must be SYSADMIN or ACCOUNTADMIN role
+- See `docs/05-ADMIN.md` for detailed instructions
 
 ## Privilege Issues
 
@@ -76,34 +48,15 @@
    ```
 
 ### Task Execution Failures
-**Symptom:** `PRICING_REFRESH_TASK` not running or failing
+**This application no longer uses scheduled tasks.**
 
-**Solutions:**
-1. **Check task status:**
-   ```sql
-   SHOW TASKS LIKE 'PRICING_REFRESH_TASK' IN SCHEMA SNOWFLAKE_EXAMPLE.REPLICATION_CALC;
-   SELECT * FROM TABLE(INFORMATION_SCHEMA.TASK_HISTORY(
-       TASK_NAME => 'PRICING_REFRESH_TASK',
-       SCHEDULED_TIME_RANGE_START => DATEADD('day', -7, CURRENT_TIMESTAMP())
-   ));
-   ```
-
-2. **Ensure task ownership:**
-   ```sql
-   USE ROLE ACCOUNTADMIN;
-   ALTER TASK PRICING_REFRESH_TASK RESUME;
-   ```
-
-3. **Check warehouse availability:**
-   ```sql
-   SHOW WAREHOUSES LIKE 'SFE_REPLICATION_CALC_WH';
-   -- Ensure state is not SUSPENDED and auto_resume is TRUE
-   ```
+If you see references to `PRICING_REFRESH_TASK`, this is from an older version. The simplified version uses pre-loaded pricing rates that admins can update via the Streamlit interface.
 
 ## Streamlit App Issues
 
 ### Streamlit app cannot load pricing
-- Ensure `PRICING_CURRENT` has rows; check `is_estimate` flags and `refreshed_at`.
+- Ensure `PRICING_CURRENT` has rows: `SELECT COUNT(*) FROM SNOWFLAKE_EXAMPLE.REPLICATION_CALC.PRICING_CURRENT;`
+- Check last update timestamp: `SELECT MAX(UPDATED_AT) FROM PRICING_CURRENT;`
 - Verify Streamlit app was created:
   ```sql
   SHOW STREAMLITS IN SCHEMA SNOWFLAKE_EXAMPLE.REPLICATION_CALC;
@@ -176,22 +129,19 @@
 
 ## Performance Issues
 
-### Slow Pricing Refresh
-**Symptom:** `REFRESH_PRICING_FROM_PDF()` takes >60 seconds
+### Slow Pricing Updates (Admin Panel)
+**Symptom:** Saving pricing changes takes a long time
 
-**Cause:** Network latency or PDF download timeout
+**Cause:** Large number of pricing entries or warehouse suspended
 
 **Solutions:**
-1. Check retry logic in procedure (3 attempts with 5s delay)
-2. Increase warehouse size if needed:
+1. Ensure warehouse is running:
+   ```sql
+   ALTER WAREHOUSE SFE_REPLICATION_CALC_WH RESUME;
+   ```
+2. Consider increasing warehouse size for bulk updates:
    ```sql
    ALTER WAREHOUSE SFE_REPLICATION_CALC_WH SET WAREHOUSE_SIZE = SMALL;
-   ```
-3. Monitor execution:
-   ```sql
-   SELECT * FROM TABLE(INFORMATION_SCHEMA.QUERY_HISTORY())
-   WHERE QUERY_TEXT LIKE '%REFRESH_PRICING_FROM_PDF%'
-   ORDER BY START_TIME DESC LIMIT 5;
    ```
 
 ### Streamlit App Slow to Load
@@ -208,6 +158,6 @@
 
 If issues persist:
 1. Check Snowflake query history for detailed error messages
-2. Review `PRICING_RAW` table for PDF fetch diagnostics
-3. Verify all prerequisites in `docs/01-SETUP.md`
+2. Verify all prerequisites in `docs/01-SETUP.md`
+3. Review admin documentation in `docs/05-ADMIN.md` for pricing management
 4. Consult Snowflake documentation for RBAC and account usage

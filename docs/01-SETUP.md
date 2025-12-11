@@ -10,7 +10,6 @@
   - Script automatically switches to SYSADMIN for object creation
 - **Network Access**: Snowflake must be able to fetch:
   - GitHub repository (via Git integration)
-  - `https://www.snowflake.com/legal-files/CreditConsumptionTable.pdf` (pricing data)
 
 ## Quick Start
 

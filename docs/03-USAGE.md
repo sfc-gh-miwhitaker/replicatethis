@@ -11,11 +11,10 @@
 
 ## Using the Calculator
 
-### Step 1: Check Pricing Freshness
-- The app shows the current pricing data timestamp
-- Pricing automatically refreshes daily at 7am UTC
-- **Manual refresh**: Click "Refresh pricing now" if you want the latest data immediately
-  - This calls the Snowpark procedure to fetch the latest PDF from Snowflake
+### Step 1: Check Pricing Status
+- The app shows when pricing data was last updated
+- Pricing rates are managed by administrators via the "Admin: Manage Pricing" page
+- Users (with PUBLIC role) can view and use pricing but cannot modify it
 
 ### Step 2: Select Database(s)
 - Choose one or more databases to replicate
@@ -51,7 +50,7 @@ The calculator shows itemized costs:
 
 ## Assumptions
 - Business Critical pricing/features.
-- Rates sourced from the Credit Consumption Table; entries flagged if estimates.
+- Rates are baseline values that should be updated by administrators to reflect current pricing.
 - Storage uses destination region pricing; data transfer uses source region pricing; replication compute uses Business Critical REPLICATION rate.
 
 ## Manual refresh (SQL alternative)
