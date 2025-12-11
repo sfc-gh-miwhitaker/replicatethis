@@ -1,7 +1,6 @@
 import streamlit as st
 from snowflake.snowpark.context import get_active_session
 from snowflake.snowpark.exceptions import SnowparkSQLException
-import pandas as pd
 
 session = get_active_session()
 
@@ -115,61 +114,6 @@ def calculate_monthly_projection(daily_transfer_cost, daily_compute_cost, storag
         "monthly_total": monthly_total,
         "annual_total": annual_total
     }
-
-
-def generate_enhanced_csv(assumptions, costs, projections, price_per_credit):
-    csv_lines = ["# Snowflake Replication Cost Estimate"]
-    csv_lines.append("")
-    csv_lines.append("# Assumptions")
-    csv_lines.append(f"Source Cloud,{assumptions['source_cloud']}")
-    csv_lines.append(f"Source Region,{assumptions['source_region']}")
-    csv_lines.append(f"Destination Cloud,{assumptions['dest_cloud']}")
-    csv_lines.append(f"Destination Region,{assumptions['dest_region']}")
-    csv_lines.append(f"Total Database Size (TB),{assumptions['total_size_tb']:.3f}")
-    csv_lines.append(f"Daily Change Rate (%),{assumptions['daily_change_pct']:.1f}")
-    csv_lines.append(f"Refreshes Per Day,{assumptions['refresh_per_day']:.1f}")
-    csv_lines.append(f"Selected Databases,\"{assumptions['selected_dbs']}\"")
-    csv_lines.append(f"Price Per Credit (USD),{price_per_credit:.2f}")
-    csv_lines.append("")
-    csv_lines.append("# Daily Costs")
-    csv_lines.append("Component,Credits,USD,Is Estimate")
-    csv_lines.append(
-        f"Data Transfer,{costs['transfer_cost']:.2f},"
-        f"${costs['transfer_cost'] * price_per_credit:.2f},{costs['transfer_est']}"
-    )
-    csv_lines.append(
-        f"Replication Compute,{costs['compute_cost']:.2f},"
-        f"${costs['compute_cost'] * price_per_credit:.2f},{costs['compute_est']}"
-    )
-    csv_lines.append("")
-    csv_lines.append("# Monthly Costs")
-    csv_lines.append("Component,Credits,USD")
-    csv_lines.append(
-        f"Data Transfer (30 days),{projections['monthly_transfer']:.2f},"
-        f"${projections['monthly_transfer'] * price_per_credit:.2f}"
-    )
-    csv_lines.append(
-        f"Replication Compute (30 days),{projections['monthly_compute']:.2f},"
-        f"${projections['monthly_compute'] * price_per_credit:.2f}"
-    )
-    csv_lines.append(
-        f"Storage,{projections['monthly_storage']:.2f},"
-        f"${projections['monthly_storage'] * price_per_credit:.2f}"
-    )
-    csv_lines.append(
-        f"Serverless Maintenance,{projections['monthly_serverless']:.2f},"
-        f"${projections['monthly_serverless'] * price_per_credit:.2f}"
-    )
-    csv_lines.append(
-        f"Monthly Total,{projections['monthly_total']:.2f},"
-        f"${projections['monthly_total'] * price_per_credit:.2f}"
-    )
-    csv_lines.append("")
-    csv_lines.append("# Annual Projection")
-    csv_lines.append(f"Annual Credits,{projections['annual_total']:.2f}")
-    csv_lines.append(f"Annual USD,${projections['annual_total'] * price_per_credit:,.2f}")
-
-    return "\n".join(csv_lines)
 
 
 def main():
@@ -362,33 +306,6 @@ def main():
     st.write("Data transfer and compute costs shown as daily values based on change rate.")
     st.write("Storage and serverless maintenance are monthly costs based on total database size.")
     st.write("Values marked as estimates rely on fallback rates when exact region match is unavailable.")
-
-    assumptions = {
-        'source_cloud': source_cloud,
-        'source_region': source_region,
-        'dest_cloud': dest_cloud or 'N/A',
-        'dest_region': dest_region or 'N/A',
-        'total_size_tb': total_size_tb,
-        'daily_change_pct': daily_change_pct,
-        'refresh_per_day': refresh_per_day,
-        'selected_dbs': ', '.join(selected_dbs) if selected_dbs else 'None'
-    }
-
-    costs = {
-        'transfer_cost': transfer_cost,
-        'compute_cost': compute_cost,
-        'transfer_est': transfer_est,
-        'compute_est': compute_est
-    }
-
-    csv_data = generate_enhanced_csv(assumptions, costs, projections, price_per_credit)
-
-    st.download_button(
-        label="Download detailed estimate (CSV)",
-        data=csv_data,
-        file_name="replication_cost_estimate.csv",
-        mime="text/csv",
-    )
 
     st.session_state['calculation_attempted'] = True
 
