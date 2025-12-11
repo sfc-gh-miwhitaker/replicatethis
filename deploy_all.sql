@@ -212,9 +212,6 @@ GRANT SELECT ON ALL VIEWS IN SCHEMA SNOWFLAKE_EXAMPLE.REPLICATION_CALC
     TO ROLE PUBLIC;
 GRANT USAGE ON STREAMLIT REPLICATION_CALCULATOR TO ROLE PUBLIC;
 
--- Grant SYSADMIN ability to update pricing (for admin UI)
-GRANT INSERT, UPDATE, DELETE ON TABLE PRICING_CURRENT TO ROLE SYSADMIN;
-
 /*****************************************************************************
  * SECTION 7: Status
  *****************************************************************************/

@@ -57,14 +57,6 @@ def get_cloud_and_region():
         return "AWS", "us-east-1"
 
 
-def get_current_role():
-    try:
-        result = session.sql("SELECT CURRENT_ROLE()").collect()
-        return result[0][0] if result else None
-    except Exception:
-        return None
-
-
 def cost_lookup(pricing_rows, service_type, cloud, region):
     for r in pricing_rows:
         if (
@@ -180,81 +172,8 @@ def generate_enhanced_csv(assumptions, costs, projections, price_per_credit):
     return "\n".join(csv_lines)
 
 
-def admin_panel():
-    st.title("Pricing Administration")
-    st.info("**Admin access required:** Only SYSADMIN and ACCOUNTADMIN can modify pricing rates.")
-
-    current_role = get_current_role()
-    st.write(f"Current role: **{current_role}**")
-
-    if current_role not in ['SYSADMIN', 'ACCOUNTADMIN']:
-        st.warning("You must use SYSADMIN or ACCOUNTADMIN role to modify pricing.")
-        return
-
-    pricing_rows, updated_at = load_pricing()
-
-    if updated_at:
-        st.success(f"Pricing last updated: {updated_at}")
-
-    df = pd.DataFrame([{
-        'SERVICE_TYPE': r.SERVICE_TYPE,
-        'CLOUD': r.CLOUD,
-        'REGION': r.REGION,
-        'UNIT': r.UNIT,
-        'RATE': float(r.RATE),
-        'CURRENCY': r.CURRENCY
-    } for r in pricing_rows])
-
-    st.subheader("Current Pricing Rates")
-    edited_df = st.data_editor(
-        df,
-        num_rows="dynamic",
-        use_container_width=True,
-        column_config={
-            "RATE": st.column_config.NumberColumn("Rate", min_value=0, format="%.4f"),
-        }
-    )
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-        if st.button("Save Changes", type="primary"):
-            try:
-                session.sql("TRUNCATE TABLE SNOWFLAKE_EXAMPLE.REPLICATION_CALC.PRICING_CURRENT").collect()
-
-                for _, row in edited_df.iterrows():
-                    insert_sql = f"""
-                        INSERT INTO SNOWFLAKE_EXAMPLE.REPLICATION_CALC.PRICING_CURRENT
-                        (SERVICE_TYPE, CLOUD, REGION, UNIT, RATE, CURRENCY)
-                        VALUES ('{row['SERVICE_TYPE']}', '{row['CLOUD']}', '{row['REGION']}',
-                                '{row['UNIT']}', {row['RATE']}, '{row['CURRENCY']}')
-                    """
-                    session.sql(insert_sql).collect()
-
-                st.success(f"✅ Pricing updated successfully! {len(edited_df)} rates saved.")
-                st.rerun()
-            except Exception as e:
-                st.error(f"Failed to update pricing: {str(e)}")
-
-    with col2:
-        if st.button("Reset to Defaults"):
-            st.warning("This will reset all pricing to default values. Confirm in SQL worksheet.")
-
-
 def main():
     st.set_page_config(page_title="Replication Cost Calculator", layout="wide")
-
-    pages = {
-        "Cost Calculator": "calculator",
-        "Admin: Manage Pricing": "admin"
-    }
-
-    st.sidebar.title("Navigation")
-    selected_page = st.sidebar.radio("Go to", list(pages.keys()))
-
-    if pages[selected_page] == "admin":
-        admin_panel()
-        return
 
     st.title("Replication / DR Cost Calculator (Business Critical)")
 
@@ -264,7 +183,7 @@ def main():
         "Always monitor actual consumption via Snowflake's usage views."
     )
 
-    st.caption("Business Critical pricing; rates managed by admins via Pricing Administration page.")
+    st.caption("Business Critical pricing; rates managed via SQL by authorized users.")
 
     st.sidebar.header("💰 Pricing Configuration")
     price_per_credit = st.sidebar.number_input(
