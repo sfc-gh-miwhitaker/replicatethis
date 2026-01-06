@@ -11,7 +11,7 @@ jobs:
     steps:
       - name: Check expiration
         run: |
-          EXPIRATION_DATE="2026-01-07"
+          EXPIRATION_DATE="2026-02-06"
           TODAY=$(date -u +"%Y-%m-%d")
           if [[ "$TODAY" > "$EXPIRATION_DATE" ]]; then
             echo "Repository expired on $EXPIRATION_DATE"
@@ -24,7 +24,7 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const expiration = new Date('2026-01-07T00:00:00Z');
+            const expiration = new Date('2026-02-06T00:00:00Z');
             const now = new Date();
             if (now > expiration) {
               await github.rest.repos.update({

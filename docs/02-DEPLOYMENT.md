@@ -16,7 +16,7 @@
 The `deploy_all.sql` script automatically:
 
 #### Phase 1: Git Integration (ACCOUNTADMIN)
-- Checks expiration date (expires 2026-01-07)
+- Checks expiration date (expires 2026-02-06)
 - Creates `SFE_GIT_API_INTEGRATION`
 - Creates `SNOWFLAKE_EXAMPLE.GIT_REPOS` schema
 - Creates Git repository clone: `SNOWFLAKE_EXAMPLE.GIT_REPOS.REPLICATE_THIS_REPO`

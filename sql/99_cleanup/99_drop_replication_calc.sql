@@ -3,7 +3,7 @@
  *
  * Author: SE Community
  * Purpose: Removes all objects created by deploy_all.sql
- * Expires: 2026-01-07
+ * Expires: 2026-02-06
  *
  * USAGE:
  * 1. Copy this entire script into Snowsight

@@ -121,8 +121,8 @@ If you see references to `PRICING_REFRESH_TASK`, this is from an older version. 
 ## Deployment Issues
 
 ### Expiration failure
-- If `deploy_all.sql` aborts due to expiration (after 2026-01-07), extend or clone with a new expiration date per project policy.
-- Update `SET EXPIRATION_DATE = '2026-01-07'::DATE;` at top of script
+- If `deploy_all.sql` aborts due to expiration (after 2026-02-06), extend or clone with a new expiration date per project policy.
+- Update `SET EXPIRATION_DATE = '2026-02-06'::DATE;` at top of script
 
 ### API Integration Already Exists
 **Symptom:** `SQL compilation error: Object 'SFE_GIT_API_INTEGRATION' already exists`
