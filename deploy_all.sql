@@ -46,7 +46,7 @@ USE WAREHOUSE COMPUTE_WH;
 CREATE DATABASE IF NOT EXISTS SNOWFLAKE_EXAMPLE;
 USE DATABASE SNOWFLAKE_EXAMPLE;
 
-CREATE SCHEMA IF NOT EXISTS TOOLS COMMENT = 'DEMO TOOLS (Expires: 2026-01-07)';
+CREATE SCHEMA IF NOT EXISTS GIT_REPOS COMMENT = 'DEMO: Shared Git repos (Expires: 2026-01-07)';
 
 -- API Integration (account-level, no DB context needed)
 CREATE OR REPLACE API INTEGRATION SFE_GIT_API_INTEGRATION
@@ -57,13 +57,13 @@ CREATE OR REPLACE API INTEGRATION SFE_GIT_API_INTEGRATION
     ENABLED = TRUE
     COMMENT = 'DEMO: Replication cost calc (Expires: 2026-01-07)';
 
-CREATE OR REPLACE GIT REPOSITORY SNOWFLAKE_EXAMPLE.TOOLS.REPLICATE_THIS_REPO
+CREATE OR REPLACE GIT REPOSITORY SNOWFLAKE_EXAMPLE.GIT_REPOS.REPLICATE_THIS_REPO
     API_INTEGRATION = SFE_GIT_API_INTEGRATION
     ORIGIN = 'https://github.com/sfc-gh-miwhitaker/replicatethis'
     COMMENT = 'Source repo for replication cost calc (Expires: 2026-01-07)';
 
 -- Fetch latest code from GitHub
-ALTER GIT REPOSITORY SNOWFLAKE_EXAMPLE.TOOLS.REPLICATE_THIS_REPO FETCH;
+ALTER GIT REPOSITORY SNOWFLAKE_EXAMPLE.GIT_REPOS.REPLICATE_THIS_REPO FETCH;
 
 -- ============================================================================
 -- CONTEXT SWITCH: SYSADMIN for all remaining objects (least privilege)
@@ -75,7 +75,7 @@ USE ROLE SYSADMIN;
  *****************************************************************************/
 CREATE WAREHOUSE IF NOT EXISTS SFE_REPLICATION_CALC_WH
     WAREHOUSE_SIZE = XSMALL
-    AUTO_SUSPEND = 300
+    AUTO_SUSPEND = 60
     AUTO_RESUME = TRUE
     INITIALLY_SUSPENDED = TRUE
     COMMENT = 'DEMO: Replication cost calculator WH (Expires: 2026-01-07)';
@@ -92,9 +92,9 @@ USE WAREHOUSE SFE_REPLICATION_CALC_WH;
 /*****************************************************************************
  * SECTION 3: Streamlit
  *****************************************************************************/
--- Create Streamlit app directly from Git repository
+-- Create Streamlit app from Git repository clone (avoid legacy ROOT_LOCATION)
 CREATE OR REPLACE STREAMLIT REPLICATION_CALCULATOR
-    ROOT_LOCATION = '@SNOWFLAKE_EXAMPLE.TOOLS.REPLICATE_THIS_REPO/branches/main/streamlit'
+    FROM @SNOWFLAKE_EXAMPLE.GIT_REPOS.REPLICATE_THIS_REPO/branches/main/streamlit
     MAIN_FILE = 'app.py'
     QUERY_WAREHOUSE = SFE_REPLICATION_CALC_WH
     COMMENT = 'DEMO: DR/Replication Cost Calculator (Expires: 2026-01-07)';
@@ -197,9 +197,9 @@ INSERT INTO PRICING_CURRENT (SERVICE_TYPE, CLOUD, REGION, UNIT, RATE, CURRENCY) 
  * SECTION 6: Grants (Demo Access)
  *****************************************************************************/
 
--- Grant ACCOUNT_USAGE access to SYSADMIN (required for DB_METADATA view)
+-- Grant minimal ACCOUNT_USAGE access for DB_METADATA view (prefer DB roles over IMPORTED PRIVILEGES)
 USE ROLE ACCOUNTADMIN;
-GRANT IMPORTED PRIVILEGES ON DATABASE SNOWFLAKE TO ROLE SYSADMIN;
+GRANT DATABASE ROLE SNOWFLAKE.USAGE_VIEWER TO ROLE SYSADMIN;
 
 -- Grant demo object access to PUBLIC (as SYSADMIN, the owner)
 USE ROLE SYSADMIN;
@@ -215,10 +215,6 @@ GRANT USAGE ON STREAMLIT REPLICATION_CALCULATOR TO ROLE PUBLIC;
 /*****************************************************************************
  * SECTION 7: Status
  *****************************************************************************/
-SELECT
-    '✅ Deployment Complete!' AS STATUS,
-    'Open Snowsight → Streamlit → REPLICATION_CALCULATOR' AS NEXT_STEP,
-    'All objects created and ready to use' AS MESSAGE,
-    'Schema: SNOWFLAKE_EXAMPLE.REPLICATION_CALC' AS SCHEMA_PATH,
-    'Warehouse: SFE_REPLICATION_CALC_WH' AS WAREHOUSE_NAME,
-    (SELECT COUNT(*) FROM PRICING_CURRENT) || ' pricing rates loaded' AS PRICING_STATUS;
+SHOW STREAMLITS LIKE 'REPLICATION_CALCULATOR' IN SCHEMA SNOWFLAKE_EXAMPLE.REPLICATION_CALC;
+SELECT COUNT(*) AS PRICING_RATES_LOADED
+FROM SNOWFLAKE_EXAMPLE.REPLICATION_CALC.PRICING_CURRENT;

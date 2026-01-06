@@ -12,7 +12,7 @@
 **Purpose:** Reference implementation for a Snowflake-native Streamlit cost calculator for database replication/DR
 **Created:** 2025-12-08 | **Expires:** 2026-01-07 (30 days) | **Status:** ACTIVE
 
-## 👋 First Time Here?
+## First Time Here?
 
 **This is a 100% Snowflake-native demo. No local setup required!**
 
@@ -61,7 +61,7 @@ pre-commit install
 
 Hooks include:
 - Secret detection (detect-secrets, gitleaks)
-- SQL linting (sqlfluff)
+- Forbidden pattern checks (for example, `SELECT *` in `.sql` files)
 - Trailing whitespace removal
 - YAML validation
 

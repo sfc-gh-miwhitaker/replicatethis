@@ -16,38 +16,36 @@
 The `deploy_all.sql` script automatically:
 
 #### Phase 1: Git Integration (ACCOUNTADMIN)
-- ✅ Checks expiration date (expires 2026-01-07)
-- ✅ Creates `SFE_GIT_API_INTEGRATION` (if not exists)
-- ✅ Creates `SNOWFLAKE_EXAMPLE.TOOLS` schema
-- ✅ Creates Git repository: `REPLICATE_THIS_REPO`
-- ✅ Fetches latest code from GitHub
+- Checks expiration date (expires 2026-01-07)
+- Creates `SFE_GIT_API_INTEGRATION`
+- Creates `SNOWFLAKE_EXAMPLE.GIT_REPOS` schema
+- Creates Git repository clone: `SNOWFLAKE_EXAMPLE.GIT_REPOS.REPLICATE_THIS_REPO`
+- Fetches latest code from GitHub
 
 #### Phase 2: Object Creation (SYSADMIN)
-- ✅ Switches to SYSADMIN role
-- ✅ Creates warehouse: `SFE_REPLICATION_CALC_WH`
-- ✅ Creates schema: `SNOWFLAKE_EXAMPLE.REPLICATION_CALC`
-- ✅ **Creates Streamlit app: `REPLICATION_CALCULATOR`** (auto-deployed from Git)
-- ✅ Creates table: `PRICING_CURRENT`
-- ✅ Creates view: `DB_METADATA`
-- ✅ Seeds pricing data (48 baseline rates for AWS/Azure/GCP)
+- Switches to SYSADMIN role
+- Creates warehouse: `SFE_REPLICATION_CALC_WH`
+- Creates schema: `SNOWFLAKE_EXAMPLE.REPLICATION_CALC`
+- Creates Streamlit app: `REPLICATION_CALCULATOR` (created from Git repository clone)
+- Creates table: `PRICING_CURRENT`
+- Creates view: `DB_METADATA`
+- Seeds pricing data (48 baseline rates for AWS/Azure/GCP)
 
 #### Phase 3: Access Grants (SYSADMIN)
-- ✅ Grants USAGE on warehouse to PUBLIC
-- ✅ Grants SELECT on tables/views to PUBLIC
-- ✅ Grants USAGE on Streamlit app to PUBLIC
-- ✅ Grants INSERT/UPDATE/DELETE on PRICING_CURRENT to SYSADMIN
+- Grants USAGE on warehouse to PUBLIC
+- Grants SELECT on tables/views to PUBLIC
+- Grants USAGE on Streamlit app to PUBLIC
+- Grants `SNOWFLAKE.USAGE_VIEWER` database role to SYSADMIN (for ACCOUNT_USAGE access used by `DB_METADATA`)
 
 ### Verify Deployment
 
 After "Run All" completes, you should see:
 
 ```
-✅ Deployment Complete!
-Open Snowsight → Streamlit → REPLICATION_CALCULATOR
 48 pricing rates loaded
 ```
 
-**Note:** The script grants ACCOUNT_USAGE access to SYSADMIN (already has it by default). Database sizes will populate from `SNOWFLAKE.ACCOUNT_USAGE.DATABASE_STORAGE_USAGE_HISTORY` (1-2 day latency for new databases).
+**Note:** Database sizes are sourced from `SNOWFLAKE.ACCOUNT_USAGE.TABLE_STORAGE_METRICS` (latency can be up to a few hours). The script grants SYSADMIN the `SNOWFLAKE.USAGE_VIEWER` database role so the `DB_METADATA` view can query `ACCOUNT_USAGE`.
 
 Pricing rates are pre-loaded baseline values. Administrators can update them via the Streamlit app's "Admin: Manage Pricing" page.
 
@@ -81,9 +79,9 @@ This removes:
 - Schema `SNOWFLAKE_EXAMPLE.REPLICATION_CALC` (CASCADE)
 - Warehouse `SFE_REPLICATION_CALC_WH`
 - Streamlit app `REPLICATION_CALCULATOR`
-- Task `PRICING_REFRESH_TASK`
+- Git repository clone `SNOWFLAKE_EXAMPLE.GIT_REPOS.REPLICATE_THIS_REPO`
 
 **Preserved (shared infrastructure):**
 - `SFE_GIT_API_INTEGRATION` (may be used by other demos)
 - `SNOWFLAKE_EXAMPLE` database
-- `SNOWFLAKE_EXAMPLE.TOOLS` schema and Git repository
+- `SNOWFLAKE_EXAMPLE.GIT_REPOS` schema

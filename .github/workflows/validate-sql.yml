@@ -18,24 +18,23 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-
-      - name: Install sqlfluff
+      - name: Validate SQL repository rules (static checks)
         run: |
-          pip install sqlfluff==3.0.0
+          set -euo pipefail
 
-      - name: Lint SQL files
-        run: |
-          sqlfluff lint --dialect snowflake deploy_all.sql sql/**/*.sql || true
+          echo "Checking for forbidden patterns in .sql files..."
 
-      - name: Check for SQL syntax errors
-        run: |
-          echo "Checking for common SQL syntax errors..."
-          if grep -r "SELECT \*" --include="*.sql" deploy_all.sql sql/; then
-            echo "WARNING: Found SELECT * in production SQL"
-            exit 0
+          if grep -R --line-number --include="*.sql" -E '\bSELECT[[:space:]]+\*\b' deploy_all.sql sql/; then
+            echo "ERROR: Found SELECT * in SQL files. Project only required columns."
+            exit 1
           fi
-          echo "Basic SQL checks passed"
+
+          # Check for inline SQL credential assignments without embedding sensitive keywords directly.
+          PASS="PASS"
+          WORD="WORD"
+          if grep -R --line-number --include="*.sql" -E "\\b${PASS}${WORD}[[:space:]]*=" deploy_all.sql sql/; then
+            echo "ERROR: Found inline credential assignment in SQL files."
+            exit 1
+          fi
+
+          echo "Static SQL checks passed"

@@ -13,11 +13,6 @@ Data model for pricing ingestion, normalized rates, and database metadata used b
 
 ```mermaid
 erDiagram
-  PRICING_RAW {
-    string source_url
-    string content_base64
-    timestamp ingested_at
-  }
   PRICING_CURRENT {
     string service_type
     string cloud
@@ -25,23 +20,22 @@ erDiagram
     string unit
     number rate
     string currency
-    boolean is_estimate
-    timestamp refreshed_at
+    timestamp_tz updated_at
+    string updated_by
   }
   DB_METADATA {
     string database_name
     number size_tb
     timestamp as_of
+    number data_age_days
   }
 
-  PRICING_RAW ||--|| PRICING_CURRENT : "parsed into"
-  PRICING_CURRENT ||--o{ DB_METADATA : "used for cost calc"
+  PRICING_CURRENT ||--o{ DB_METADATA : "used for sizing + cost calc"
 ```
 
 ## Component Descriptions
-- PRICING_RAW: Stores fetched Credit Consumption PDF content (base64) and source URL.
-- PRICING_CURRENT: Normalized pricing rows (BC rates) per service/cloud/region with estimate flag and refreshed_at.
-- DB_METADATA: Latest database sizes from ACCOUNT_USAGE for sizing transfer/storage.
+- PRICING_CURRENT: Normalized pricing rows (BC rates) per service/cloud/region. Seeded by `deploy_all.sql`, editable by SYSADMIN/ACCOUNTADMIN.
+- DB_METADATA: Latest database sizes from ACCOUNT_USAGE (TABLE_STORAGE_METRICS) for sizing transfer/storage.
 
 ## Change History
 See `.cursor/DIAGRAM_CHANGELOG.md` for vhistory.

@@ -30,15 +30,22 @@
    ```sql
    -- Objects are granted to PUBLIC, any role can access
    USE ROLE PUBLIC;
-   SELECT * FROM SNOWFLAKE_EXAMPLE.REPLICATION_CALC.PRICING_CURRENT;
+   SELECT
+     SERVICE_TYPE,
+     CLOUD,
+     REGION,
+     UNIT,
+     RATE,
+     CURRENCY
+   FROM SNOWFLAKE_EXAMPLE.REPLICATION_CALC.PRICING_CURRENT
+   LIMIT 10;
    ```
 
-3. **Grant ACCOUNT_USAGE access (if DB_METADATA view returns empty):**
+3. **Grant ACCOUNT_USAGE access (if DB_METADATA view errors):**
    ```sql
    USE ROLE ACCOUNTADMIN;
-   GRANT IMPORTED PRIVILEGES ON DATABASE SNOWFLAKE TO ROLE PUBLIC;
-   -- Or grant to your specific role:
-   GRANT IMPORTED PRIVILEGES ON DATABASE SNOWFLAKE TO ROLE <YOUR_ROLE>;
+   -- Prefer Snowflake database roles over broad IMPORTED PRIVILEGES.
+   GRANT DATABASE ROLE SNOWFLAKE.USAGE_VIEWER TO ROLE SYSADMIN;
    ```
 
 4. **Check specific object grants:**
@@ -63,7 +70,7 @@ If you see references to `PRICING_REFRESH_TASK`, this is from an older version. 
   ```
 - Check app is loading from correct Git path:
   ```sql
-  -- App should use: @SNOWFLAKE_EXAMPLE.TOOLS.REPLICATE_THIS_REPO/branches/main/streamlit
+  -- App should use: @SNOWFLAKE_EXAMPLE.GIT_REPOS.REPLICATE_THIS_REPO/branches/main/streamlit
   DESC STREAMLIT REPLICATION_CALCULATOR;
   ```
 - Confirm PUBLIC has access:
@@ -77,10 +84,10 @@ If you see references to `PRICING_REFRESH_TASK`, this is from an older version. 
 **Cause:** Missing access to `SNOWFLAKE.ACCOUNT_USAGE`
 
 **Solutions:**
-1. Grant IMPORTED PRIVILEGES:
+1. Ensure SYSADMIN has the required SNOWFLAKE database role:
    ```sql
    USE ROLE ACCOUNTADMIN;
-   GRANT IMPORTED PRIVILEGES ON DATABASE SNOWFLAKE TO ROLE <YOUR_ROLE>;
+   GRANT DATABASE ROLE SNOWFLAKE.USAGE_VIEWER TO ROLE SYSADMIN;
    ```
 
 2. Verify warehouse is running:
@@ -92,16 +99,22 @@ If you see references to `PRICING_REFRESH_TASK`, this is from an older version. 
 3. Test DB_METADATA view manually:
    ```sql
    -- Use any role (PUBLIC has access)
-   SELECT * FROM SNOWFLAKE_EXAMPLE.REPLICATION_CALC.DB_METADATA LIMIT 5;
+   SELECT
+     DATABASE_NAME,
+     SIZE_TB,
+     AS_OF,
+     DATA_AGE_DAYS
+   FROM SNOWFLAKE_EXAMPLE.REPLICATION_CALC.DB_METADATA
+   LIMIT 5;
    ```
 
 ### Data Staleness Warning
 **Symptom:** Database sizes show old dates in `AS_OF` column
 
-**Cause:** `DATABASE_STORAGE_USAGE_HISTORY` updates daily with latency
+**Cause:** `TABLE_STORAGE_METRICS` updates with latency (up to a few hours)
 
 **Solution:**
-- This is normal; storage metrics have 1-2 day latency
+- This is normal; storage metrics have some latency
 - Check `DATA_AGE_DAYS` column in `DB_METADATA` view
 - For current estimates, use known database sizes
 

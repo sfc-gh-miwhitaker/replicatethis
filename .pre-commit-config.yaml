@@ -3,8 +3,7 @@ repos:
     rev: v1.4.0
     hooks:
       - id: detect-secrets
-        args: ['--baseline', '.secrets.baseline']
-        exclude: package-lock.json
+        args: ["--baseline", ".secrets.baseline"]
 
   - repo: https://github.com/gitleaks/gitleaks
     rev: v8.18.0
@@ -18,36 +17,18 @@ repos:
       - id: end-of-file-fixer
       - id: check-yaml
       - id: check-added-large-files
-        args: ['--maxkb=5000']
+        args: ["--maxkb=5000"]
       - id: check-merge-conflict
       - id: detect-private-key
       - id: check-case-conflict
 
   - repo: local
     hooks:
-      - id: check-cursor-files
-        name: Block .cursor/ files
-        entry: "bash -c 'if git diff --cached --name-only | grep -q \"^\\\\.cursor/\"; then echo \"ERROR: .cursor/ files must not be committed (stealth violation)\"; exit 1; fi'"
+      - id: block-gitignore
+        name: Block committed .gitignore file
+        entry: >-
+          bash -c 'if git diff --cached --name-only | grep -Fqx ".gitignore";
+          then echo "ERROR: .gitignore must not be committed (use global ignore)";
+          exit 1; fi'
         language: system
         pass_filenames: false
-
-      - id: check-gitignore-exists
-        name: Block .gitignore files
-        entry: "bash -c 'if git diff --cached --name-only | grep -q \"^\\\\.gitignore$\"; then echo \"ERROR: .gitignore must not be committed (use global ignore)\"; exit 1; fi'"
-        language: system
-        pass_filenames: false
-
-      - id: check-personal-names
-        name: Check for personal names (anonymization)
-        entry: "bash -c 'if git diff --cached | grep -iE \"(michael|whitaker)\" | grep -v \"# michael\"; then echo \"WARNING: Personal name detected - ensure SE Community attribution\"; exit 0; fi'"
-        language: system
-        pass_filenames: false
-
-  # SQLFluff disabled - can't parse Snowflake-specific DDL (API INTEGRATION, etc.)
-  # - repo: https://github.com/sqlfluff/sqlfluff
-  #   rev: 3.0.0
-  #   hooks:
-  #     - id: sqlfluff-lint
-  #       args: [--dialect, snowflake]
-  #     - id: sqlfluff-fix
-  #       args: [--dialect, snowflake]

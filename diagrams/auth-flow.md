@@ -24,7 +24,7 @@ sequenceDiagram
   Admin->>SF: USE ROLE ACCOUNTADMIN
   SF->>SF: Create Git API Integration
   Admin->>SF: USE ROLE SYSADMIN
-  SF->>SF: Create warehouse, schema, tables, views, proc, task, Streamlit app
+  SF->>SF: Create warehouse, schema, tables, views, Streamlit app
   SF->>SF: GRANT SELECT/USAGE to PUBLIC
 
   Note over User,SF: Usage Phase
@@ -33,9 +33,11 @@ sequenceDiagram
   Note over Streamlit: User has PUBLIC grants
   Streamlit->>SF: Query PRICING_CURRENT, DB_METADATA
   SF-->>Streamlit: Return data
-  User->>Streamlit: Click "Refresh pricing now"
-  Streamlit->>SF: CALL REFRESH_PRICING_FROM_PDF()
-  SF-->>Streamlit: Pricing refreshed
+  Note over Admin,SF: Admin Pricing Updates (Optional)
+  Admin->>SF: USE ROLE SYSADMIN
+  Admin->>Streamlit: Open Admin: Manage Pricing
+  Streamlit->>SF: TRUNCATE + INSERT PRICING_CURRENT
+  SF-->>Streamlit: Pricing saved
 ```
 
 ## Component Descriptions
@@ -58,16 +60,11 @@ sequenceDiagram
   - Read-only access to pricing tables/views
   - USAGE on warehouse for queries
   - USAGE on Streamlit app
-  - Can execute the pricing refresh procedure
-
-#### Task Execution
-- **SYSADMIN**: Granted OPERATE on PRICING_REFRESH_TASK (line 261)
-  - Task runs with owner's rights (SYSADMIN context)
-  - Background process, not user-facing
+  - Cannot modify pricing data
 
 ### Warehouse
-- **SFE_REPLICATION_CALC_WH**: Used by Streamlit app queries and pricing refresh
-  - Auto-suspend after 5 minutes
+- **SFE_REPLICATION_CALC_WH**: Used by Streamlit app queries
+  - Auto-suspend after 60 seconds
   - Auto-resume on query
   - XSmall size for demo workloads
 

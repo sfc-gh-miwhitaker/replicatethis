@@ -32,8 +32,7 @@ The admin panel displays all pricing rates in an editable table with columns:
 
 If you need to restore baseline pricing:
 
-1. Click **"Reset to Defaults"** button
-2. Run the INSERT statements from `deploy_all.sql` in a SQL worksheet
+1. Run the INSERT statements from `deploy_all.sql` in a SQL worksheet (SECTION 5: Seed Pricing Data)
 
 ## Pricing Data Structure
 
@@ -56,7 +55,16 @@ Each pricing entry must include:
 4. **Backup current rates**: Export the current pricing table before major updates:
    ```sql
    CREATE TABLE PRICING_BACKUP AS
-   SELECT * FROM SNOWFLAKE_EXAMPLE.REPLICATION_CALC.PRICING_CURRENT;
+   SELECT
+     SERVICE_TYPE,
+     CLOUD,
+     REGION,
+     UNIT,
+     RATE,
+     CURRENCY,
+     UPDATED_AT,
+     UPDATED_BY
+   FROM SNOWFLAKE_EXAMPLE.REPLICATION_CALC.PRICING_CURRENT;
    ```
 
 ## Troubleshooting

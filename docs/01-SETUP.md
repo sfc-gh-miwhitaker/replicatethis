@@ -30,10 +30,10 @@
 - **Schema**: `SNOWFLAKE_EXAMPLE.REPLICATION_CALC`
 - **Warehouse**: `SFE_REPLICATION_CALC_WH` (XSmall, auto-suspend)
 - **Streamlit App**: `REPLICATION_CALCULATOR`
-- **Git Repository**: `SNOWFLAKE_EXAMPLE.TOOLS.REPLICATE_THIS_REPO`
+- **Git Repository**: `SNOWFLAKE_EXAMPLE.GIT_REPOS.REPLICATE_THIS_REPO`
 
 ### Security Notes
 - No credentials stored
-- All external access to public URLs (GitHub, Snowflake PDF)
+- All external access is to GitHub (via Snowflake native Git integration)
 - Minimal privilege grants (PUBLIC has SELECT/USAGE only)
 - Streamlit app deploys directly from Git (no manual file uploads)

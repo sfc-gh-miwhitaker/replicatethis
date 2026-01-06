@@ -18,11 +18,11 @@
 
 ### Step 2: Select Database(s)
 - Choose one or more databases to replicate
-- Sizes come from `ACCOUNT_USAGE.DATABASE_STORAGE_USAGE_HISTORY` (most recent data)
+- Sizes come from `ACCOUNT_USAGE.TABLE_STORAGE_METRICS` (latency can be a few hours)
 - The app shows data staleness (last updated timestamp)
 
 ### Step 3: Choose Destination
-- **Source**: Auto-detected from `CURRENT_REGION()` and `CURRENT_CLOUD()`
+- **Source**: Auto-detected from `CURRENT_REGION()`
 - **Destination**: Pick target cloud provider and region from dropdown
 - The app calculates cross-region and cross-cloud transfer costs
 
@@ -53,7 +53,6 @@ The calculator shows itemized costs:
 - Rates are baseline values that should be updated by administrators to reflect current pricing.
 - Storage uses destination region pricing; data transfer uses source region pricing; replication compute uses Business Critical REPLICATION rate.
 
-## Manual refresh (SQL alternative)
-```sql
-CALL SNOWFLAKE_EXAMPLE.REPLICATION_CALC.REFRESH_PRICING_FROM_PDF();
-```
+## Notes
+- Pricing defaults are seeded by `deploy_all.sql`.
+- If you need to reset pricing to defaults, re-run the seed INSERT statements in `deploy_all.sql` (SECTION 5).

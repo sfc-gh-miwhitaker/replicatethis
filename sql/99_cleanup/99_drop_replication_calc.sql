@@ -15,7 +15,7 @@
  * NOTE: Does NOT remove shared infrastructure:
  * - SFE_GIT_API_INTEGRATION (may be used by other demos)
  * - SNOWFLAKE_EXAMPLE database (contains other demos)
- * - SNOWFLAKE_EXAMPLE.TOOLS schema (shared Git repos)
+ * - SNOWFLAKE_EXAMPLE.GIT_REPOS schema (shared Git repos schema)
  *****************************************************************************/
 
 -- ============================================================================
@@ -27,53 +27,34 @@
 USE ROLE SYSADMIN;
 
 /*****************************************************************************
- * SECTION 1: Suspend and Drop Tasks
- * Must suspend before dropping to avoid active task errors
- *****************************************************************************/
-
--- Suspend task first (required before drop)
-ALTER TASK IF EXISTS SNOWFLAKE_EXAMPLE.REPLICATION_CALC.PRICING_REFRESH_TASK
-SUSPEND;
-
--- Drop the task
-DROP TASK IF EXISTS SNOWFLAKE_EXAMPLE.REPLICATION_CALC.PRICING_REFRESH_TASK;
-
-/*****************************************************************************
- * SECTION 2: Drop Application Objects
+ * SECTION 1: Drop Application Objects
  *****************************************************************************/
 
 -- Drop Streamlit app (created by deploy_all.sql)
 DROP STREAMLIT IF EXISTS SNOWFLAKE_EXAMPLE.REPLICATION_CALC.REPLICATION_CALCULATOR;
 
 /*****************************************************************************
- * SECTION 3: Drop Schema (CASCADE removes all tables, views, stages, procs)
+ * SECTION 2: Drop Schema (CASCADE removes all tables, views, stages, procs)
  *****************************************************************************/
 
 -- CASCADE will drop:
--- - PRICING_DATA table
--- - REPLICATION_GROUPS table
--- - V_PRICING_SUMMARY view
--- - PRICE_STAGE stage
--- - REFRESH_PRICING_FROM_PDF() procedure
+-- - PRICING_CURRENT table
+-- - DB_METADATA view
 DROP SCHEMA IF EXISTS SNOWFLAKE_EXAMPLE.REPLICATION_CALC CASCADE;
 
 /*****************************************************************************
- * SECTION 4: Drop Warehouse
+ * SECTION 3: Drop Warehouse
  *****************************************************************************/
 
 DROP WAREHOUSE IF EXISTS SFE_REPLICATION_CALC_WH;
 
 /*****************************************************************************
- * SECTION 5: Drop External Access Objects (ACCOUNTADMIN)
- * These are project-specific and safe to remove
+ * SECTION 4: Drop Git Repository Clone (ACCOUNTADMIN)
+ * The clone is project-specific; the API integration is shared and preserved.
  *****************************************************************************/
 USE ROLE ACCOUNTADMIN;
 
--- Drop external access integration (used by pricing refresh procedure)
-DROP INTEGRATION IF EXISTS SFE_SNOWFLAKE_PDF_ACCESS;
-
--- Drop network rule (allows HTTPS to www.snowflake.com)
-DROP NETWORK RULE IF EXISTS SNOWFLAKE_EXAMPLE.TOOLS.SFE_SNOWFLAKE_PDF_NETWORK_RULE;
+DROP GIT REPOSITORY IF EXISTS SNOWFLAKE_EXAMPLE.GIT_REPOS.REPLICATE_THIS_REPO;
 
 /*****************************************************************************
  * VERIFICATION: Show remaining objects
@@ -86,7 +67,7 @@ SHOW SCHEMAS LIKE 'REPLICATION_CALC' IN DATABASE SNOWFLAKE_EXAMPLE;
 SHOW WAREHOUSES LIKE 'SFE_REPLICATION_CALC_WH';
 
 -- Final status
-SELECT '✅ Cleanup Complete!' AS status,
-       'All demo objects have been removed' AS message,
-       'Shared infrastructure (Git integration, SNOWFLAKE_EXAMPLE DB) preserved'
-           AS note;
+SELECT
+    'Cleanup Complete' AS STATUS,
+    'All demo objects have been removed' AS MESSAGE,
+    'Shared infrastructure (SNOWFLAKE_EXAMPLE DB, SNOWFLAKE_EXAMPLE.GIT_REPOS schema, SFE_GIT_API_INTEGRATION) preserved' AS NOTE;

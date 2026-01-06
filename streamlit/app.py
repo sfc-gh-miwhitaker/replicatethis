@@ -1,13 +1,25 @@
 import streamlit as st
+import pandas as pd
 from snowflake.snowpark.context import get_active_session
 from snowflake.snowpark.exceptions import SnowparkSQLException
 
 session = get_active_session()
 
+PRICING_TABLE_FQN = "SNOWFLAKE_EXAMPLE.REPLICATION_CALC.PRICING_CURRENT"
+DB_METADATA_VIEW_FQN = "SNOWFLAKE_EXAMPLE.REPLICATION_CALC.DB_METADATA"
+
+
+def get_current_role():
+    try:
+        result = session.sql("SELECT CURRENT_ROLE()").collect()
+        return result[0][0] if result else None
+    except Exception:
+        return None
+
 
 def load_pricing():
     try:
-        df = session.table("SNOWFLAKE_EXAMPLE.REPLICATION_CALC.PRICING_CURRENT")
+        df = session.table(PRICING_TABLE_FQN)
         rows = df.collect()
         if not rows:
             return [], None
@@ -23,7 +35,7 @@ def load_pricing():
 
 def load_db_metadata():
     try:
-        df = session.table("SNOWFLAKE_EXAMPLE.REPLICATION_CALC.DB_METADATA")
+        df = session.table(DB_METADATA_VIEW_FQN)
         return df.collect()
     except SnowparkSQLException as e:
         st.error(f"Failed to load database metadata: {str(e)}. Check ACCOUNT_USAGE access.")
@@ -116,6 +128,171 @@ def calculate_monthly_projection(daily_transfer_cost, daily_compute_cost, storag
     }
 
 
+def pricing_rows_to_dataframe(pricing_rows):
+    return pd.DataFrame(
+        [
+            {
+                "SERVICE_TYPE": r.SERVICE_TYPE,
+                "CLOUD": r.CLOUD,
+                "REGION": r.REGION,
+                "UNIT": r.UNIT,
+                "RATE": float(r.RATE) if r.RATE is not None else None,
+                "CURRENCY": r.CURRENCY,
+            }
+            for r in pricing_rows
+        ]
+    )
+
+
+def render_admin_manage_pricing(pricing_rows, updated_at):
+    st.subheader("Admin: Manage Pricing")
+
+    current_role = get_current_role()
+    st.caption(f"Current role: {current_role or 'Unknown'}")
+
+    if current_role not in ("SYSADMIN", "ACCOUNTADMIN"):
+        st.error("Insufficient privileges. Switch to SYSADMIN or ACCOUNTADMIN to edit pricing.")
+        return
+
+    if updated_at:
+        st.caption(f"Pricing data last updated: {updated_at}")
+
+    pricing_df = pricing_rows_to_dataframe(pricing_rows)
+    if pricing_df.empty:
+        st.error("No pricing data found. Re-run deploy_all.sql to seed baseline pricing.")
+        return
+
+    edited_df = st.data_editor(
+        pricing_df,
+        num_rows="dynamic",
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    col1, col2 = st.columns(2)
+    with col1:
+        save_clicked = st.button("Save Changes", type="primary")
+    with col2:
+        st.caption("Saving will overwrite the pricing table with the edited rows.")
+
+    if not save_clicked:
+        return
+
+    required_cols = ["SERVICE_TYPE", "CLOUD", "REGION", "UNIT", "RATE", "CURRENCY"]
+    missing = [c for c in required_cols if c not in edited_df.columns]
+    if missing:
+        st.error(f"Missing required columns: {', '.join(missing)}")
+        return
+
+    cleaned = edited_df[required_cols].copy()
+    cleaned = cleaned.dropna(subset=["SERVICE_TYPE", "CLOUD", "REGION", "UNIT", "RATE", "CURRENCY"])
+
+    if cleaned.empty:
+        st.error("No valid rows to save after removing empty rows.")
+        return
+
+    cleaned["SERVICE_TYPE"] = cleaned["SERVICE_TYPE"].astype(str).str.strip().str.upper()
+    cleaned["CLOUD"] = cleaned["CLOUD"].astype(str).str.strip().str.upper()
+    cleaned["REGION"] = cleaned["REGION"].astype(str).str.strip()
+    cleaned["UNIT"] = cleaned["UNIT"].astype(str).str.strip().str.upper()
+    cleaned["CURRENCY"] = cleaned["CURRENCY"].astype(str).str.strip().str.upper()
+
+    try:
+        cleaned["RATE"] = cleaned["RATE"].astype(float)
+    except Exception:
+        st.error("RATE must be numeric for all rows.")
+        return
+
+    invalid_rates = cleaned[cleaned["RATE"] <= 0]
+    if not invalid_rates.empty:
+        st.error("RATE must be > 0 for all rows.")
+        return
+
+    non_credits = cleaned[cleaned["CURRENCY"] != "CREDITS"]
+    if not non_credits.empty:
+        st.error("CURRENCY must be CREDITS for all rows.")
+        return
+
+    key_cols = ["SERVICE_TYPE", "CLOUD", "REGION", "UNIT"]
+    dupes = cleaned.duplicated(subset=key_cols, keep=False)
+    if dupes.any():
+        st.error("Duplicate rows detected for the key (SERVICE_TYPE, CLOUD, REGION, UNIT). Remove duplicates and try again.")
+        return
+
+    rows_for_insert = [
+        (
+            r.SERVICE_TYPE,
+            r.CLOUD,
+            r.REGION,
+            r.UNIT,
+            float(r.RATE),
+            r.CURRENCY,
+        )
+        for r in cleaned.itertuples(index=False)
+    ]
+
+    try:
+        tmp_df = session.create_dataframe(
+            rows_for_insert,
+            schema=["SERVICE_TYPE", "CLOUD", "REGION", "UNIT", "RATE", "CURRENCY"],
+        )
+        tmp_df.create_or_replace_temp_view("PRICING_UPDATES_TMP")
+
+        session.sql(f"TRUNCATE TABLE {PRICING_TABLE_FQN}").collect()
+        session.sql(
+            f"""
+            INSERT INTO {PRICING_TABLE_FQN} (SERVICE_TYPE, CLOUD, REGION, UNIT, RATE, CURRENCY)
+            SELECT SERVICE_TYPE, CLOUD, REGION, UNIT, RATE, CURRENCY
+            FROM PRICING_UPDATES_TMP
+            """
+        ).collect()
+
+        st.success(f"Pricing saved. Rows written: {len(rows_for_insert)}")
+    except SnowparkSQLException as e:
+        st.error(f"Failed to save pricing: {str(e)}")
+    except Exception as e:
+        st.error(f"Unexpected error saving pricing: {str(e)}")
+
+
+def results_to_csv_bytes(
+    selected_dbs,
+    total_size_tb,
+    source_cloud,
+    source_region,
+    dest_cloud,
+    dest_region,
+    daily_change_pct,
+    refresh_per_day,
+    transfer_cost,
+    compute_cost,
+    storage_cost,
+    serverless_cost,
+    projections,
+    price_per_credit,
+):
+    export_rows = [
+        {"FIELD": "SOURCE_CLOUD", "VALUE": source_cloud},
+        {"FIELD": "SOURCE_REGION", "VALUE": source_region},
+        {"FIELD": "DEST_CLOUD", "VALUE": dest_cloud},
+        {"FIELD": "DEST_REGION", "VALUE": dest_region},
+        {"FIELD": "SELECTED_DATABASES", "VALUE": ", ".join(selected_dbs) if selected_dbs else ""},
+        {"FIELD": "TOTAL_SIZE_TB", "VALUE": total_size_tb},
+        {"FIELD": "DAILY_CHANGE_PCT", "VALUE": daily_change_pct},
+        {"FIELD": "REFRESHES_PER_DAY", "VALUE": refresh_per_day},
+        {"FIELD": "PRICE_PER_CREDIT_USD", "VALUE": price_per_credit},
+        {"FIELD": "DAILY_TRANSFER_CREDITS", "VALUE": transfer_cost},
+        {"FIELD": "DAILY_REPLICATION_COMPUTE_CREDITS", "VALUE": compute_cost},
+        {"FIELD": "MONTHLY_STORAGE_CREDITS", "VALUE": storage_cost},
+        {"FIELD": "MONTHLY_SERVERLESS_CREDITS", "VALUE": serverless_cost},
+        {"FIELD": "MONTHLY_TOTAL_CREDITS", "VALUE": projections["monthly_total"]},
+        {"FIELD": "ANNUAL_TOTAL_CREDITS", "VALUE": projections["annual_total"]},
+        {"FIELD": "MONTHLY_TOTAL_USD", "VALUE": projections["monthly_total"] * price_per_credit},
+        {"FIELD": "ANNUAL_TOTAL_USD", "VALUE": projections["annual_total"] * price_per_credit},
+    ]
+    export_df = pd.DataFrame(export_rows)
+    return export_df.to_csv(index=False).encode("utf-8")
+
+
 def main():
     st.set_page_config(page_title="Replication Cost Calculator", layout="wide")
 
@@ -129,7 +306,8 @@ def main():
 
     st.caption("Business Critical pricing; rates managed via SQL by authorized users.")
 
-    st.sidebar.header("💰 Pricing Configuration")
+    st.sidebar.header("Pricing Configuration")
+    mode = st.sidebar.radio("Mode", ["Calculator", "Admin: Manage Pricing"])
     price_per_credit = st.sidebar.number_input(
         "Price per credit (USD)",
         min_value=0.50,
@@ -147,7 +325,11 @@ def main():
         return
 
     if updated_at:
-        st.caption(f"📊 Pricing data last updated: {updated_at}")
+        st.caption(f"Pricing data last updated: {updated_at}")
+
+    if mode == "Admin: Manage Pricing":
+        render_admin_manage_pricing(pricing_rows, updated_at)
+        return
 
     db_rows = load_db_metadata()
     db_options = {r.DATABASE_NAME: r for r in db_rows}
@@ -209,7 +391,7 @@ def main():
         if transfer_rate:
             st.caption(f"Transfer rate: {transfer_rate} credits/TB")
         else:
-            st.caption("⚠️ No exact rate found - using fallback")
+            st.caption("No exact rate found - using fallback")
     with col2:
         st.write("**Destination:**")
         st.write(f"Cloud: {dest_cloud or '-'}")
@@ -221,7 +403,7 @@ def main():
 
     if total_size_tb > 0 and total_size_tb < 0.01:
         st.warning(
-            f"⚠️ Selected databases are very small ({total_size_tb * 1024 * 1024:.1f} MB). "
+            f"Selected databases are very small ({total_size_tb * 1024 * 1024:.1f} MB). "
             "Costs may appear as $0.00. This is expected for small datasets."
         )
 
@@ -306,6 +488,31 @@ def main():
     st.write("Data transfer and compute costs shown as daily values based on change rate.")
     st.write("Storage and serverless maintenance are monthly costs based on total database size.")
     st.write("Values marked as estimates rely on fallback rates when exact region match is unavailable.")
+
+    csv_bytes = results_to_csv_bytes(
+        selected_dbs=selected_dbs,
+        total_size_tb=total_size_tb,
+        source_cloud=source_cloud,
+        source_region=source_region,
+        dest_cloud=dest_cloud,
+        dest_region=dest_region,
+        daily_change_pct=daily_change_pct,
+        refresh_per_day=refresh_per_day,
+        transfer_cost=transfer_cost,
+        compute_cost=compute_cost,
+        storage_cost=storage_cost,
+        serverless_cost=serverless_cost,
+        projections=projections,
+        price_per_credit=price_per_credit,
+    )
+    st.download_button(
+        "Download CSV",
+        data=csv_bytes,
+        file_name="replication_cost_estimate.csv",
+        mime="text/csv",
+        disabled=not bool(selected_dbs),
+        help="Select at least one database to enable export.",
+    )
 
     st.session_state['calculation_attempted'] = True
 
