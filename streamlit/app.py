@@ -17,6 +17,7 @@ def get_current_role():
         return None
 
 
+@st.cache_data(ttl=300, show_spinner="Loading pricing data...")
 def load_pricing():
     try:
         df = session.table(PRICING_TABLE_FQN)
@@ -33,6 +34,7 @@ def load_pricing():
         return [], None
 
 
+@st.cache_data(ttl=600, show_spinner="Loading database metadata...")
 def load_db_metadata():
     try:
         df = session.table(DB_METADATA_VIEW_FQN)
@@ -247,6 +249,7 @@ def render_admin_manage_pricing(pricing_rows, updated_at):
             """
         ).collect()
 
+        load_pricing.clear()
         st.success(f"Pricing saved. Rows written: {len(rows_for_insert)}")
     except SnowparkSQLException as e:
         st.error(f"Failed to save pricing: {str(e)}")

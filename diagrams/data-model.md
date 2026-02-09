@@ -1,7 +1,7 @@
 # Data Model - Streamlit DR Replication Cost Calculator
 Author: SE Community
 Last Updated: 2025-12-08
-Expires: 2026-02-06
+Expires: 2026-04-10
 Status: Reference Implementation
 
 ![Snowflake](https://img.shields.io/badge/Snowflake-29B5E8?style=for-the-badge&logo=snowflake&logoColor=white)
@@ -27,7 +27,6 @@ erDiagram
     string database_name
     number size_tb
     timestamp as_of
-    number data_age_days
   }
 
   PRICING_CURRENT ||--o{ DB_METADATA : "used for sizing + cost calc"

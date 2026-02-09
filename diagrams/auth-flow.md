@@ -1,7 +1,7 @@
 # Auth Flow - Streamlit DR Replication Cost Calculator
 Author: SE Community
 Last Updated: 2025-12-08
-Expires: 2026-02-06
+Expires: 2026-04-10
 Status: Reference Implementation
 
 ![Snowflake](https://img.shields.io/badge/Snowflake-29B5E8?style=for-the-badge&logo=snowflake&logoColor=white)
@@ -50,12 +50,12 @@ sequenceDiagram
 ### Authorization (Role-Based Security)
 
 #### Deployment Roles
-- **ACCOUNTADMIN**: Creates Git API integration only (line 30-43 in deploy_all.sql)
-- **SYSADMIN**: Creates all database objects - owns them (line 58+ in deploy_all.sql)
-  - Warehouse, schema, tables, views, stages, procedures, tasks, Streamlit app
+- **ACCOUNTADMIN**: Creates Git API integration only (lines 31-68 in deploy_all.sql)
+- **SYSADMIN**: Creates all database objects - owns them (lines 73+ in deploy_all.sql)
+  - Warehouse, schema, tables, views, Streamlit app
 
 #### Usage Roles
-- **PUBLIC**: Granted SELECT and USAGE permissions (lines 246-258 in deploy_all.sql)
+- **PUBLIC**: Granted SELECT and USAGE permissions (lines 208-216 in deploy_all.sql)
   - Any Snowflake user can run the demo
   - Read-only access to pricing tables/views
   - USAGE on warehouse for queries

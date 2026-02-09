@@ -102,8 +102,7 @@ If you see references to `PRICING_REFRESH_TASK`, this is from an older version. 
    SELECT
      DATABASE_NAME,
      SIZE_TB,
-     AS_OF,
-     DATA_AGE_DAYS
+     AS_OF
    FROM SNOWFLAKE_EXAMPLE.REPLICATION_CALC.DB_METADATA
    LIMIT 5;
    ```
@@ -115,14 +114,14 @@ If you see references to `PRICING_REFRESH_TASK`, this is from an older version. 
 
 **Solution:**
 - This is normal; storage metrics have some latency
-- Check `DATA_AGE_DAYS` column in `DB_METADATA` view
+- The `AS_OF` column shows query execution time; storage metrics may lag by up to 3 hours
 - For current estimates, use known database sizes
 
 ## Deployment Issues
 
 ### Expiration failure
-- If `deploy_all.sql` aborts due to expiration (after 2026-02-06), extend or clone with a new expiration date per project policy.
-- Update `SET EXPIRATION_DATE = '2026-02-06'::DATE;` at top of script
+- If `deploy_all.sql` aborts due to expiration (after 2026-04-10), extend or clone with a new expiration date per project policy.
+- Update `SET DEMO_EXPIRES = '2026-04-10';` at top of script
 
 ### API Integration Already Exists
 **Symptom:** `SQL compilation error: Object 'SFE_GIT_API_INTEGRATION' already exists`
